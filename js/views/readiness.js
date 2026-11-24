@@ -1,8 +1,7 @@
 /* ==========================================================================
    IRON DIARY · views/readiness.js — Вкладка 3: «Форма»
-   "Каким ты будешь" interactive anatomical physique morphing card (85..140 kg),
-   calorie & timeline calculator, "Утренний замер · НАТОЩАК", CNS readiness,
-   bodyweight & resting heart rate charts, height/wingspan settings.
+   60fps touch slider for target weight (updates SVG & tiles in-place without
+   destroying DOM during iOS drag), biometric 3D physique scan, morning check.
    ========================================================================== */
 import * as S from '../store.js';
 import { MORNING_FEEL } from '../program.js';
@@ -10,7 +9,7 @@ import {
   readiness, bodyPlan, dateKey, addDays, humanDate, shortDate, fmt, fmtInt, clamp,
 } from '../engine.js';
 import {
-  icon, esc, on, openSheet, closeSheet, toast, physiqueSVG, signalBars, lineChart,
+  icon, esc, on, openSheet, toast, physiqueSVG, signalBars, lineChart,
 } from '../ui.js';
 import * as T from '../timer.js';
 
@@ -53,6 +52,37 @@ function entryFor(st, k = curDate()) {
   };
 }
 
+function renderPlanTiles(plan) {
+  return `
+    <div class="ref-tile">
+      <span class="ref-sublabel">ПЛАН ККАЛ</span>
+      <div class="mt-1 flex items-baseline gap-1.5 flex-wrap">
+        <span class="font-display text-[20px] font-bold text-white leading-none">${fmtInt(plan.kcal)}</span>
+        <span class="text-[12px] text-zinc-400 font-semibold">${plan.deltaLabel}</span>
+      </div>
+    </div>
+    <div class="ref-tile">
+      <span class="ref-sublabel">БЕЛОК</span>
+      <div class="mt-1 flex items-baseline gap-1.5">
+        <span class="font-display text-[20px] font-bold text-white leading-none">${plan.protein}</span>
+        <span class="text-[12px] text-zinc-400 font-semibold">г/день</span>
+      </div>
+    </div>
+    <div class="ref-tile">
+      <span class="ref-sublabel">СРОК</span>
+      <div class="mt-1 flex items-baseline gap-1.5">
+        <span class="font-display text-[20px] font-bold text-white leading-none">${plan.weeks ? plan.weeks : '—'}</span>
+        ${plan.weeks ? `<span class="text-[12px] text-zinc-400 font-semibold">${plan.weeks < 5 ? 'нед.' : 'недель'}</span>` : ''}
+      </div>
+    </div>
+    <div class="ref-tile">
+      <span class="ref-sublabel">К ДАТЕ</span>
+      <div class="mt-1">
+        <span class="font-display text-[19px] font-bold text-white leading-none">${plan.targetDate ? shortDate(plan.targetDate) : '—'}</span>
+      </div>
+    </div>`;
+}
+
 export function render(st) {
   const P = st.profile;
   const k = curDate();
@@ -60,6 +90,7 @@ export function render(st) {
   const baseHr = baselineHr(st);
   const R = readiness(E, baseHr);
   const plan = bodyPlan(P.bw, P.targetBw);
+  const sliderPct = ((clamp(P.targetBw, 85, 140) - 85) / 55 * 100).toFixed(1);
 
   const bwPoints = (st.bodyweight || []).map(b => ({
     v: b.kg,
@@ -73,112 +104,87 @@ export function render(st) {
   }));
 
   const pulseStatus = E.saved
-    ? `<div class="hero-pulse-pill mt-4">
-        <span class="w-2.5 h-2.5 rounded-full ${R.zone === 'red' ? 'bg-red-500' : R.zone === 'yellow' ? 'bg-amber-400' : 'bg-emerald-400'}"></span>
-        <span>Индекс ЦНС ${R.score}% &middot; Пульс ${E.hr} уд/мин (норма ${baseHr})</span>
+    ? `<div class="hero-pulse-pill mt-3">
+        <span class="w-2 h-2 rounded-full ${R.zone === 'red' ? 'bg-red-500' : R.zone === 'yellow' ? 'bg-amber-400' : 'bg-emerald-400'}"></span>
+        <span>ЦНС ${R.score}% &middot; Пульс ${E.hr} уд/мин (норма ${baseHr})</span>
       </div>`
-    : `<button class="hero-pulse-pill mt-4" data-act="bd:saveMorning">
-        <span class="w-2.5 h-2.5 rounded-full bg-zinc-500"></span>
+    : `<button class="hero-pulse-pill mt-3" data-act="bd:saveMorning">
+        <span class="w-2 h-2 rounded-full bg-zinc-400"></span>
         <span>Запиши утренний пульс</span>
       </button>`;
 
   return `
   <!-- Card 1: МОЯ ФОРМА · Каким ты будешь -->
-  <section class="ref-card ref-hero hero-body">
-    <div class="ref-eyebrow text-accent">МОЯ ФОРМА</div>
-    <h1 class="ref-hero-title mt-1.5">Каким ты будешь</h1>
+  <section class="ref-card ref-hero hero-body photo-card" style="--photo:url('./img/bg-physique.jpg')">
+    <div class="ref-eyebrow text-accent">МОЯ ФОРМА &middot; БИОМЕТРИЯ</div>
+    <h1 class="ref-hero-title mt-1">Каким ты будешь</h1>
 
-    <div class="mt-2" id="physiqueStage">
-      ${physiqueSVG(P.bw, P.targetBw, P.height)}
+    <div class="mt-1" id="physiqueStage">
+      ${physiqueSVG(P.bw, P.targetBw)}
     </div>
 
-    <div class="flex items-center justify-between font-mono text-[12px] tracking-wider uppercase mt-2">
+    <div class="flex items-center justify-between font-mono text-[11px] tracking-wider uppercase mt-1">
       <span class="text-zinc-400">ПУНКТИР &mdash; СЕЙЧАС ${fmt(P.bw)} КГ</span>
       <span class="text-accent font-bold" id="targetBwLabel">ЗАЛИВКА &mdash; ЦЕЛЬ ${fmt(P.targetBw)} КГ</span>
     </div>
 
-    <div class="mt-3">
+    <div class="mt-2.5 py-1">
       <input
         type="range"
         min="85"
         max="140"
         step="1"
         value="${Math.round(P.targetBw)}"
+        style="--pct:${sliderPct}%"
         class="body-slider"
         data-change="bd:targetSlider"
         aria-label="Целевой вес тела"
       />
     </div>
 
-    <div class="grid grid-cols-2 gap-2.5 mt-4" id="bodyPlanGrid">
-      <div class="ref-tile">
-        <span class="ref-sublabel">ПЛАН ККАЛ</span>
-        <div class="mt-1 flex items-baseline gap-1.5 flex-wrap">
-          <span class="font-display text-[26px] font-extrabold text-white leading-none">${fmtInt(plan.kcal)}</span>
-          <span class="text-[14px] text-zinc-400 font-semibold">${plan.deltaLabel}</span>
-        </div>
-      </div>
-      <div class="ref-tile">
-        <span class="ref-sublabel">БЕЛОК</span>
-        <div class="mt-1 flex items-baseline gap-1.5">
-          <span class="font-display text-[26px] font-extrabold text-white leading-none">${plan.protein}</span>
-          <span class="text-[14px] text-zinc-400 font-semibold">г/день</span>
-        </div>
-      </div>
-      <div class="ref-tile">
-        <span class="ref-sublabel">СРОК</span>
-        <div class="mt-1 flex items-baseline gap-1.5">
-          <span class="font-display text-[26px] font-extrabold text-white leading-none">${plan.weeks ? plan.weeks : '—'}</span>
-          ${plan.weeks ? `<span class="text-[14px] text-zinc-400 font-semibold">${plan.weeks < 5 ? 'недели' : 'недель'}</span>` : ''}
-        </div>
-      </div>
-      <div class="ref-tile">
-        <span class="ref-sublabel">К ДАТЕ</span>
-        <div class="mt-1">
-          <span class="font-display text-[24px] font-extrabold text-white leading-none">${plan.targetDate ? shortDate(plan.targetDate) : '—'}</span>
-        </div>
-      </div>
+    <div class="grid grid-cols-2 gap-2 mt-3" id="bodyPlanGrid">
+      ${renderPlanTiles(plan)}
     </div>
 
-    <p class="text-[14px] text-zinc-400 mt-4 leading-relaxed">
+    <p class="text-[12.5px] text-zinc-400 mt-3 leading-relaxed">
       Питание во вкладке «Еда» уже пересчитано под цель. Темп набора &mdash; 0,5–1 кг в неделю. Быстрее &mdash; это в основном жир.
     </p>
   </section>
 
   <!-- Date Nav -->
   <div class="flex items-center justify-between gap-2">
-    <button class="ref-nav-arrow" data-act="bd:shiftDate" data-d="-1" aria-label="Предыдущий день">${icon('chevronLeft', 20)}</button>
-    <div class="text-[20px] font-extrabold text-white tracking-tight">${humanDate(k)}</div>
-    <button class="ref-nav-arrow" data-act="bd:shiftDate" data-d="1" aria-label="Следующий день">${icon('chevronRight', 20)}</button>
+    <button class="ref-nav-arrow" data-act="bd:shiftDate" data-d="-1" aria-label="Предыдущий день">${icon('chevronLeft', 18)}</button>
+    <div class="text-[16px] font-bold text-white tracking-tight">${humanDate(k)}</div>
+    <button class="ref-nav-arrow" data-act="bd:shiftDate" data-d="1" aria-label="Следующий день">${icon('chevronRight', 18)}</button>
   </div>
 
   <!-- Card 2: Утренний замер · НАТОЩАК -->
-  <section class="ref-card p-4">
+  <section class="ref-card p-3.5">
     <div class="flex items-center justify-between">
-      <h2 class="text-[24px] font-extrabold text-white">Утренний замер</h2>
+      <h2 class="text-[18px] font-bold font-display text-white">Утренний замер</h2>
       <span class="ref-eyebrow text-accent">НАТОЩАК</span>
     </div>
 
-    <div class="grid grid-cols-3 gap-2.5 mt-4">
+    <div class="grid grid-cols-3 gap-2 mt-3">
       <button class="ref-metric-box" data-act="bd:editMetric" data-m="bw">
         <span class="ref-sublabel">ВЕС, КГ</span>
         <span class="ref-metric-num">${fmt(E.bw ?? P.bw, 1)}</span>
-        <span class="text-[12px] text-zinc-400">после туалета</span>
+        <span class="text-[11px] text-zinc-400">после туалета</span>
       </button>
       <button class="ref-metric-box" data-act="bd:editMetric" data-m="hr">
         <span class="ref-sublabel">ПУЛЬС</span>
         <span class="ref-metric-num">${E.hr}</span>
-        <span class="text-[12px] text-zinc-400">лёжа, 1 мин</span>
+        <span class="text-[11px] text-zinc-400">лёжа, 1 мин</span>
       </button>
       <button class="ref-metric-box" data-act="bd:editMetric" data-m="sleep">
         <span class="ref-sublabel">СОН, Ч</span>
         <span class="ref-metric-num">${fmt(E.sleep, 1)}</span>
-        <span class="text-[12px] text-zinc-400">сколько спал</span>
+        <span class="text-[11px] text-zinc-400">сколько спал</span>
       </button>
     </div>
 
-    <div class="mt-4">
-      <div class="ref-sublabel mb-2">КАК ТЫ УТРОМ</div>
+    <div class="mt-3.5">
+      <div class="ref-sublabel mb-1.5">КАК ТЫ УТРОМ</div>
       <div class="grid grid-cols-5 gap-1.5">
         ${MORNING_FEEL.map(f => `
           <button class="feel-btn feel-purple ${E.quality === f.key ? 'is-on' : ''}" data-act="bd:feel" data-v="${f.key}">
@@ -190,7 +196,7 @@ export function render(st) {
 
     <input
       type="text"
-      class="field mt-3.5"
+      class="field mt-3"
       placeholder="Забитость, суставы, настроение — что угодно"
       value="${esc(E.note || '')}"
       data-change="bd:note"
@@ -198,64 +204,76 @@ export function render(st) {
 
     ${pulseStatus}
 
-    <p class="text-[14px] text-zinc-400 mt-3.5 leading-relaxed">
+    <p class="text-[12.5px] text-zinc-400 mt-3 leading-relaxed">
       Пульс меряй сразу после пробуждения, ещё в кровати. Если он на 7+ ударов выше нормы &mdash; организм не восстановился.
     </p>
   </section>
 
   <!-- Card 3: Вес тела -->
-  <section class="ref-card p-4">
+  <section class="ref-card p-3.5">
     <div class="flex items-center justify-between">
-      <h2 class="text-[22px] font-extrabold text-white">Вес тела</h2>
-      <span class="font-mono text-[13px] text-zinc-400">${fmt(P.bw, 1)} кг</span>
+      <h2 class="text-[17px] font-bold font-display text-white">Вес тела</h2>
+      <span class="font-mono text-[12px] text-zinc-400">${fmt(P.bw, 1)} кг</span>
     </div>
     ${bwPoints.length >= 2
       ? lineChart(bwPoints, { color: '#9D6BFF' })
-      : `<p class="text-[14px] text-zinc-400 mt-2.5 leading-relaxed">Вписывай вес каждое утро &mdash; график появится со второго дня</p>`}
+      : `<p class="text-[12.5px] text-zinc-400 mt-2 leading-relaxed">Вписывай вес каждое утро &mdash; график появится со второго дня</p>`}
   </section>
 
   <!-- Card 4: Пульс покоя -->
-  <section class="ref-card p-4">
+  <section class="ref-card p-3.5">
     <div class="flex items-center justify-between">
-      <h2 class="text-[22px] font-extrabold text-white">Пульс покоя</h2>
-      <span class="font-mono text-[13px] text-zinc-400">норма ${baseHr} уд/мин</span>
+      <h2 class="text-[17px] font-bold font-display text-white">Пульс покоя</h2>
+      <span class="font-mono text-[12px] text-zinc-400">норма ${baseHr} уд/мин</span>
     </div>
     ${hrPoints.length >= 2
       ? lineChart(hrPoints, { color: '#C084FC', fmtY: (v) => Math.round(v) })
-      : `<p class="text-[14px] text-zinc-400 mt-2.5 leading-relaxed">Появится со второго замера. Рост пульса &mdash; ранний признак перегруза</p>`}
+      : `<p class="text-[12.5px] text-zinc-400 mt-2 leading-relaxed">Появится со второго замера. Рост пульса &mdash; ранний признак перегруза</p>`}
   </section>
 
   <!-- Card 5: Рост и размах рук -->
-  <section class="ref-card p-4 space-y-3">
+  <section class="ref-card p-3.5 space-y-2.5">
     <div class="flex items-center justify-between">
       <div>
-        <div class="text-[18px] font-extrabold text-white">Рост</div>
-        <div class="text-[13px] text-zinc-400">для расчёта силуэта</div>
+        <div class="text-[15px] font-bold text-white">Рост</div>
+        <div class="text-[12px] text-zinc-400">для расчёта силуэта</div>
       </div>
       <div class="flex items-center gap-2">
         <button class="ref-val-box" data-act="bd:editMetric" data-m="height">${P.height}</button>
-        <span class="font-mono text-[13px] text-zinc-400">СМ</span>
+        <span class="font-mono text-[12px] text-zinc-400">СМ</span>
       </div>
     </div>
-    <div class="flex items-center justify-between pt-3 border-t border-white/[0.06]">
+    <div class="flex items-center justify-between pt-2.5 border-t border-white/[0.06]">
       <div>
-        <div class="text-[18px] font-extrabold text-white">Размах рук</div>
-        <div class="text-[13px] text-zinc-400">рычаги классической тяги (+${P.wingspan - P.height} см)</div>
+        <div class="text-[15px] font-bold text-white">Размах рук</div>
+        <div class="text-[12px] text-zinc-400">рычаги классики (+${P.wingspan - P.height} см)</div>
       </div>
       <div class="flex items-center gap-2">
         <button class="ref-val-box" data-act="bd:editMetric" data-m="wingspan">${P.wingspan}</button>
-        <span class="font-mono text-[13px] text-zinc-400">СМ</span>
+        <span class="font-mono text-[12px] text-zinc-400">СМ</span>
       </div>
     </div>
   </section>`;
 }
 
-/* ---------------------------------------------------------- Actions */
+/* --------------------------------- 60fps In-Place Slider Update Handler */
 on('bd:targetSlider', (el) => {
   const val = clamp(+el.value, 85, 140);
+  const pct = ((val - 85) / 55 * 100).toFixed(1);
+  el.style.setProperty('--pct', `${pct}%`);
+
+  // Save state silently without destroying the active range input DOM element!
   S.update(st => {
     st.profile.targetBw = val;
-  });
+  }, { silent: true });
+
+  const st = S.get();
+  const stage = document.getElementById('physiqueStage');
+  const lbl = document.getElementById('targetBwLabel');
+  const grid = document.getElementById('bodyPlanGrid');
+  if (stage) stage.innerHTML = physiqueSVG(st.profile.bw, val);
+  if (lbl) lbl.textContent = `ЗАЛИВКА — ЦЕЛЬ ${fmt(val)} КГ`;
+  if (grid) grid.innerHTML = renderPlanTiles(bodyPlan(st.profile.bw, val));
 });
 
 on('bd:shiftDate', (el) => {
@@ -315,13 +333,13 @@ function renderMetricSheet() {
     <div class="flex items-start justify-between">
       <div>
         <div class="ref-eyebrow text-accent">УТРЕННИЙ ЗАМЕР</div>
-        <h3 class="text-[20px] font-extrabold text-white mt-1">${cfg.title}</h3>
+        <h3 class="text-[18px] font-bold font-display text-white mt-1">${cfg.title}</h3>
       </div>
-      <button class="icon-btn" data-act="sheet:close" aria-label="Закрыть">${icon('x', 20)}</button>
+      <button class="icon-btn" data-act="sheet:close" aria-label="Закрыть">${icon('x', 18)}</button>
     </div>
-    <div class="flex items-end justify-center gap-2 mt-5">
-      <span class="font-display text-[54px] font-extrabold leading-none text-white">${fmt(cfg.val, 1)}</span>
-      <span class="text-zinc-400 mb-2 font-bold">${cfg.unit}</span>
+    <div class="flex items-end justify-center gap-2 mt-4">
+      <span class="font-display text-[44px] font-bold leading-none text-white">${fmt(cfg.val, 1)}</span>
+      <span class="text-zinc-400 mb-1.5 font-semibold">${cfg.unit}</span>
     </div>
     <div class="grid grid-cols-4 gap-2 mt-4">
       <button class="step-lg" data-act="bd:stepMetric" data-d="${-cfg.stepB}">\u2212${fmt(cfg.stepB)}</button>
@@ -329,7 +347,7 @@ function renderMetricSheet() {
       <button class="step-lg" data-act="bd:stepMetric" data-d="${cfg.stepA}">+${fmt(cfg.stepA)}</button>
       <button class="step-lg" data-act="bd:stepMetric" data-d="${cfg.stepB}">+${fmt(cfg.stepB)}</button>
     </div>
-    <button class="btn btn-primary w-full mt-5" data-act="sheet:close">Сохранить</button>
+    <button class="btn btn-primary w-full mt-5" data-act="sheet:close">Готово</button>
   </div>`;
 }
 

@@ -2,12 +2,16 @@
    IRON DIARY · sw.js
    Offline-first Service Worker for GitHub Pages and local PWA execution.
    ========================================================================== */
-const CACHE = 'iron-diary-v4';
+const CACHE = 'iron-diary-v5';
 const CORE = [
   './',
   './index.html',
   './manifest.webmanifest',
   './icons/icon.svg',
+  './img/bg-deadlift.jpg',
+  './img/bg-squat.jpg',
+  './img/bg-barbell.jpg',
+  './img/bg-physique.jpg',
   './js/app.js',
   './js/engine.js',
   './js/program.js',
@@ -41,7 +45,6 @@ self.addEventListener('fetch', (e) => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
 
-  /* Same-origin assets: cache-first with background refresh */
   if (url.origin === self.location.origin) {
     e.respondWith(
       caches.match(req).then((cached) => {
@@ -58,7 +61,6 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
-  /* Cross-origin (Google Fonts / Tailwind CDN): cache on first fetch for offline gym use */
   e.respondWith(
     caches.match(req).then((cached) => {
       if (cached) return cached;

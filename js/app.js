@@ -1,14 +1,10 @@
 /* ==========================================================================
    IRON DIARY · app.js
-   Application shell matching reference UI:
-   - Header: "ЖЕЛЕЗНЫЙ ДНЕВНИК" (with dynamic tab accent color on "ДНЕВНИК"),
-     green status dot "СОХРАНЕНО · ОФЛАЙН", week switcher "< НЕД 1/8 >",
-     and Wake Lock API toggle.
-   - Bottom Dock: 5 tabs ("Зал", "Еда", "Форма", "Сила", "Неделя") with
-     dynamic per-tab accent glow (Red, Green, Purple, Orange, Blue).
+   iPhone 15 Pro optimized header (zero overlap), Wake Lock API, methodology
+   sheet, 5-tab Apple Liquid Glass dock, and Service Worker registration.
    ========================================================================== */
 import * as S from './store.js';
-import { fmt, clamp } from './engine.js';
+import { clamp } from './engine.js';
 import { WEEKS, methodSections } from './program.js';
 import {
   icon, actions, on, mountSheet, mountToast, openSheet, closeSheet, refreshSheet, toast,
@@ -78,9 +74,9 @@ function openMethodSheet() {
       <div class="flex items-start justify-between gap-2">
         <div>
           <div class="ref-eyebrow text-accent">МЕТОДИКА &middot; ${P.height} СМ / РАЗМАХ ${P.wingspan} СМ</div>
-          <h3 class="text-[20px] font-extrabold text-white mt-1">Архитектура цикла и рычаги</h3>
+          <h3 class="text-[18px] font-display font-bold text-white mt-1">Архитектура цикла и рычаги</h3>
         </div>
-        <button class="icon-btn" data-act="sheet:close" aria-label="Закрыть">${icon('x', 20)}</button>
+        <button class="icon-btn" data-act="sheet:close" aria-label="Закрыть">${icon('x', 18)}</button>
       </div>
       <div class="flex gap-1.5 overflow-x-auto no-scrollbar mt-3 pb-1">
         ${secs.map((s, i) => `
@@ -88,7 +84,7 @@ function openMethodSheet() {
       </div>
       <div class="prose-lab mt-3">${cur.body}</div>
       <div class="grid grid-cols-2 gap-2 mt-4">
-        <button class="btn btn-ghost" data-act="app:plates">${icon('disc', 17)}<span>Калькулятор блинов</span></button>
+        <button class="btn btn-ghost" data-act="app:plates">${icon('disc', 16)}<span>Калькулятор блинов</span></button>
         <button class="btn btn-primary" data-act="sheet:close">Понятно</button>
       </div>
     </div>`;
@@ -131,25 +127,25 @@ function paintHeader() {
   const wakeActive = !!(wakeSentinel || wakeWanted);
 
   headerEl.innerHTML = `
-    <div class="max-w-[480px] mx-auto px-3.5 h-[66px] flex items-center justify-between gap-2">
+    <div class="max-w-[440px] mx-auto px-3.5 h-[56px] flex items-center justify-between gap-2">
       <div class="min-w-0 flex-1">
-        <button class="text-left block truncate" data-act="app:method" title="Методика и биомеханика">
+        <button class="text-left block max-w-full truncate" data-act="app:method" title="Методика и биомеханика">
           <span class="brand-title">ЖЕЛЕЗНЫЙ <span class="text-accent">ДНЕВНИК</span></span>
         </button>
-        <div class="flex items-center gap-2 mt-1">
+        <div class="flex items-center gap-1.5 mt-0.5">
           <span class="save-dot"></span>
           <span class="save-text">СОХРАНЕНО &middot; ОФЛАЙН</span>
           <button class="wake-chip ${wakeActive ? 'is-on' : ''}" data-act="app:wake" title="Удерживать экран включённым">
-            ${icon(wakeActive ? 'eye' : 'eyeOff', 13)}
-            <span>${wakeActive ? 'ЭКРАН ВКЛ' : 'ЭКРАН'}</span>
+            ${icon(wakeActive ? 'eye' : 'eyeOff', 11)}
+            <span>${wakeActive ? 'ВКЛ' : 'ЭКРАН'}</span>
           </button>
         </div>
       </div>
 
       <div class="week-pill shrink-0">
-        <button class="week-pill-arrow" data-act="app:weekStep" data-d="-1" aria-label="Предыдущая неделя">${icon('chevronLeft', 16)}</button>
+        <button class="week-pill-arrow" data-act="app:weekStep" data-d="-1" aria-label="Предыдущая неделя">${icon('chevronLeft', 14)}</button>
         <button class="week-pill-label" data-act="nav" data-tab="week">НЕД ${st.ui.week}/${WEEKS.length}</button>
-        <button class="week-pill-arrow" data-act="app:weekStep" data-d="1" aria-label="Следующая неделя">${icon('chevronRight', 16)}</button>
+        <button class="week-pill-arrow" data-act="app:weekStep" data-d="1" aria-label="Следующая неделя">${icon('chevronRight', 14)}</button>
       </div>
     </div>`;
 }
@@ -162,7 +158,7 @@ function paintDock() {
     <div class="dock-bar">
       ${Object.entries(VIEWS).map(([k, v]) => `
         <button class="dock-item ${cur === k ? 'is-on' : ''}" data-act="nav" data-tab="${k}" aria-current="${cur === k ? 'page' : 'false'}">
-          ${icon(v.ico, 22)}
+          ${icon(v.ico, 19)}
           <span>${v.title}</span>
         </button>`).join('')}
     </div>`;
@@ -173,7 +169,7 @@ function paintMain() {
   const st = S.get();
   const v = VIEWS[st.ui.tab] || VIEWS.gym;
   const active = document.activeElement;
-  if (active && (active.tagName === 'TEXTAREA' || (active.tagName === 'INPUT' && active.type !== 'range')) && mainEl.contains(active)) {
+  if (active && (active.tagName === 'TEXTAREA' || active.tagName === 'INPUT') && mainEl.contains(active)) {
     return;
   }
   mainEl.innerHTML = v.render(st);

@@ -1,8 +1,7 @@
 /* ==========================================================================
    IRON DIARY · views/training.js — Вкладка 1: «Зал»
-   Hero card with custom barbell SVG, 4-day red pills, visual ТОП-СЕТ & ПОТОМ
-   plate cards, green completed set cards with 5-bar "КАК ПОШЁЛ" & RIR 0..4+,
-   warm-up pyramid, and inline warm-up/decompression checklist.
+   Compact iPhone 15 Pro layout, darkened athletic photo backdrop, Apple
+   Liquid Glass cards, precision technical barbell SVG, 3D equipment badges.
    ========================================================================== */
 import * as S from '../store.js';
 import { WEEKS, DAYS, SCHEME_LABEL, PROTOCOLS } from '../program.js';
@@ -11,7 +10,7 @@ import {
   SPEED_LIST, RIR_OPTIONS, PLATE_SPEC, roundTo, dateKey,
 } from '../engine.js';
 import {
-  icon, esc, on, openSheet, closeSheet, toast, barbellSVG, ring, signalBars, exerciseIcon,
+  icon, on, openSheet, toast, barbellSVG, ring, signalBars, exerciseIcon,
 } from '../ui.js';
 import * as T from '../timer.js';
 import {
@@ -35,13 +34,13 @@ function platePillsHTML(st, weight) {
   const pb = plateBreakdown(weight, P.bar, P.collar);
   const groups = groupPlates(pb.plates);
   if (pb.underBar || !groups.length) {
-    return `<div class="flex flex-wrap items-center gap-1.5 mt-3">
+    return `<div class="flex flex-wrap items-center gap-1.5 mt-2">
       <span class="plate-pill-label">На сторону</span>
-      <span class="plate-pill"><span class="text-zinc-400">Пустой гриф ${P.bar} кг</span></span>
+      <span class="plate-pill"><span class="text-zinc-400">Гриф ${P.bar} кг</span></span>
     </div>`;
   }
   return `
-    <div class="flex flex-wrap items-center gap-1.5 mt-3">
+    <div class="flex flex-wrap items-center gap-1.5 mt-2">
       <span class="plate-pill-label">На сторону</span>
       ${groups.map(g => `
         <span class="plate-pill">
@@ -58,51 +57,53 @@ function heroCard(st, sess, plan, w, d) {
   const counts = dayCounts(st, w, d);
   const pct = Math.round(counts.frac * 100);
 
-  // Heaviest primary exercise of the day
   const mainEx = plan[0];
   const mainSets = effSets(sess, mainEx);
   const heaviest = mainSets.reduce((best, s) => (s.w > best.w ? s : best), mainSets[0]);
   const pb = plateBreakdown(heaviest.w, st.profile.bar, st.profile.collar);
+  const bgPhoto = (d === 1 || d === 3) ? './img/bg-deadlift.jpg' : './img/bg-squat.jpg';
 
   const R = todayReadiness(st);
   const pulsePill = R
     ? `<button class="hero-pulse-pill" data-act="nav" data-tab="body">
-        <span class="w-2.5 h-2.5 rounded-full ${R.zone === 'red' ? 'bg-red-500' : R.zone === 'yellow' ? 'bg-amber-400' : 'bg-emerald-400'}"></span>
-        <span>Пульс ${R.entry.hr} · ЦНС ${R.score}% · ${R.entry.sleep} ч сна</span>
+        <span class="w-2 h-2 rounded-full ${R.zone === 'red' ? 'bg-red-500' : R.zone === 'yellow' ? 'bg-amber-400' : 'bg-emerald-400'}"></span>
+        <span>Пульс ${R.entry.hr} &middot; ЦНС ${R.score}% &middot; ${R.entry.sleep} ч</span>
       </button>`
     : `<button class="hero-pulse-pill" data-act="nav" data-tab="body">
-        <span class="w-2.5 h-2.5 rounded-full bg-zinc-500"></span>
+        <span class="w-2 h-2 rounded-full bg-zinc-400"></span>
         <span>Запиши утренний пульс</span>
       </button>`;
 
   return `
-  <section class="ref-card ref-hero hero-gym">
-    <div class="flex items-start justify-between gap-3">
-      <div class="min-w-0">
+  <section class="ref-card ref-hero hero-gym photo-card" style="--photo:url('${bgPhoto}')">
+    <div class="flex items-start justify-between gap-2.5">
+      <div class="min-w-0 flex-1">
         <div class="ref-eyebrow text-accent">${day.dowFull} &middot; НЕДЕЛЯ ${w} &middot; ${wk.phase.toUpperCase()}</div>
-        <h1 class="ref-hero-title mt-1.5">${day.title(w)}</h1>
+        <h1 class="ref-hero-title mt-1">${day.title(w)}</h1>
       </div>
       <div class="relative shrink-0 grid place-items-center">
-        ${ring(counts.frac, { size: 74, stroke: 6.5, color: '#EF233C' })}
-        <span class="absolute font-mono text-[15px] font-bold text-white">${pct}%</span>
+        ${ring(counts.frac, { size: 56, stroke: 5, color: '#EF233C' })}
+        <span class="absolute font-mono text-[12px] font-bold text-white">${pct}%</span>
       </div>
     </div>
 
-    <div class="grid grid-cols-12 items-center gap-2 mt-3">
-      <div class="col-span-7 min-w-0">
-        <div class="text-accent">${exerciseIcon(mainEx.ico, 42)}</div>
-        <div class="ref-sublabel mt-2">САМОЕ ТЯЖЁЛОЕ &middot; ${mainEx.name.toUpperCase()}</div>
-        <div class="flex items-baseline gap-1.5 mt-0.5">
+    <div class="grid grid-cols-12 items-center gap-2 mt-2.5">
+      <div class="col-span-6 min-w-0">
+        <div class="flex items-center gap-2">
+          ${exerciseIcon(mainEx.ico, 36)}
+          <span class="ref-sublabel leading-tight">САМОЕ ТЯЖЁЛОЕ<br/>${mainEx.name.toUpperCase()}</span>
+        </div>
+        <div class="flex items-baseline gap-1.5 mt-1.5">
           <span class="ref-giant-num">${fmt(heaviest.w)}</span>
-          <span class="text-[20px] font-bold text-zinc-400">кг</span>
+          <span class="text-[15px] font-bold text-zinc-400">кг</span>
         </div>
       </div>
-      <button class="col-span-5 cursor-pointer text-right" data-act="tr:calcWeight" data-w="${heaviest.w}" aria-label="Открыть калькулятор дисков">
+      <button class="col-span-6 cursor-pointer" data-act="tr:calcWeight" data-w="${heaviest.w}" aria-label="Открыть калькулятор дисков">
         ${barbellSVG(pb.plates, { collar: st.profile.collar > 0, compact: true })}
       </button>
     </div>
 
-    <div class="mt-3 flex items-center justify-between gap-2 flex-wrap">
+    <div class="mt-2.5 flex items-center justify-between gap-2 flex-wrap">
       ${pulsePill}
       ${R && R.zone !== 'green' && R.zone !== 'work' ? `
         <button class="chip-btn ${sess?.mod ? 'is-on' : ''}" data-act="tr:mod" data-v="${sess?.mod ? 0 : -0.075}">
@@ -115,14 +116,14 @@ function heroCard(st, sess, plan, w, d) {
 /* ----------------------------------------------------- 4-Day Switcher */
 function daySwitcher(st, w, d) {
   return `
-  <div class="grid grid-cols-4 gap-2">
+  <div class="grid grid-cols-4 gap-1.5">
     ${DAYS.map(day => {
       const c = dayCounts(st, w, day.n);
       const on = day.n === d;
       return `
       <button class="ref-day-pill ${on ? 'is-on' : ''}" data-act="tr:day" data-d="${day.n}">
-        <span class="text-[18px] font-extrabold leading-tight">${day.dow}</span>
-        <span class="font-mono text-[13px] mt-1 ${on ? 'text-white/90' : 'text-zinc-400'}">${c.done}/${c.total}</span>
+        <span class="text-[15px] font-bold leading-tight">${day.dow}</span>
+        <span class="font-mono text-[11.5px] mt-0.5 ${on ? 'text-white/90' : 'text-zinc-400'}">${c.done}/${c.total}</span>
       </button>`;
     }).join('')}
   </div>`;
@@ -138,19 +139,19 @@ function protocolAccordion(st) {
   const map = st.protocols[today]?.[mode] || {};
 
   return `
-  <section class="ref-card p-3.5">
+  <section class="ref-card px-3.5 py-2.5">
     <div class="flex items-center justify-between gap-2">
-      <button class="flex items-center gap-2.5 text-left flex-1 min-w-0" data-act="tr:toggleProto">
+      <button class="flex items-center gap-2 text-left flex-1 min-w-0" data-act="tr:toggleProto">
         <span class="w-2 h-2 rounded-full ${pre.done === pre.total ? 'bg-emerald-400' : 'bg-red-500'}"></span>
-        <span class="text-[13.5px] font-bold text-zinc-200 truncate">Разминка ${pre.done}/${pre.total} &middot; Заминка ${post.done}/${post.total}</span>
+        <span class="text-[12.5px] font-semibold text-zinc-200 truncate">Разминка ${pre.done}/${pre.total} &middot; Заминка ${post.done}/${post.total}</span>
       </button>
-      <button class="chip-btn text-[11px]" data-act="tr:toggleProto">${protoBannerOpen ? 'Скрыть' : 'Чек-лист'}</button>
+      <button class="chip-btn text-[10.5px] h-[30px]" data-act="tr:toggleProto">${protoBannerOpen ? 'Скрыть' : 'Чек-лист'}</button>
     </div>
     ${protoBannerOpen ? `
-      <div class="mt-3 pt-3 border-t border-white/[0.07] anim-expand">
-        <div class="grid grid-cols-2 gap-1.5 mb-3">
-          <button class="chip-btn ${mode === 'pre' ? 'is-on' : ''}" data-act="pr:mode" data-m="pre">Мобилизация до (${pre.done}/${pre.total})</button>
-          <button class="chip-btn ${mode === 'post' ? 'is-on' : ''}" data-act="pr:mode" data-m="post">Декомпрессия после (${post.done}/${post.total})</button>
+      <div class="mt-2.5 pt-2.5 border-t border-white/[0.07] anim-expand">
+        <div class="grid grid-cols-2 gap-1.5 mb-2.5">
+          <button class="chip-btn ${mode === 'pre' ? 'is-on' : ''}" data-act="pr:mode" data-m="pre">Мобилизация (${pre.done}/${pre.total})</button>
+          <button class="chip-btn ${mode === 'post' ? 'is-on' : ''}" data-act="pr:mode" data-m="post">Декомпрессия (${post.done}/${post.total})</button>
         </div>
         <div class="divide-y divide-white/[0.06]">
           ${P.groups.flatMap(g => g.items).map(it => {
@@ -158,13 +159,13 @@ function protocolAccordion(st) {
             return `
             <div class="py-2 flex items-center justify-between gap-2">
               <button class="flex items-center gap-2.5 text-left flex-1 min-w-0" data-act="pr:toggle" data-id="${it.id}">
-                <span class="w-6 h-6 rounded-lg grid place-items-center border ${done ? 'bg-emerald-500 border-emerald-400 text-black' : 'border-white/15 text-transparent'}">${icon('check', 14)}</span>
+                <span class="w-5 h-5 rounded-md grid place-items-center border ${done ? 'bg-emerald-500 border-emerald-400 text-black' : 'border-white/15 text-transparent'}">${icon('check', 13)}</span>
                 <span class="min-w-0 flex-1">
-                  <span class="block text-[13px] font-semibold ${done ? 'line-through text-zinc-500' : 'text-zinc-100'}">${it.title} <span class="font-mono text-[11px] text-zinc-400">· ${it.dose}</span></span>
-                  <span class="block text-[11.5px] text-zinc-400">${it.cue}</span>
+                  <span class="block text-[12.5px] font-semibold ${done ? 'line-through text-zinc-500' : 'text-zinc-100'}">${it.title} <span class="font-mono text-[10.5px] text-zinc-400">· ${it.dose}</span></span>
+                  <span class="block text-[11px] text-zinc-400">${it.cue}</span>
                 </span>
               </button>
-              ${it.sec ? `<button class="chip-btn text-[11px]" data-act="pr:timer" data-sec="${it.sec}" data-title="${it.title}" data-cue="${it.cue}">${it.sec >= 60 ? Math.round(it.sec / 60) + 'м' : it.sec + 'с'}</button>` : ''}
+              ${it.sec ? `<button class="chip-btn text-[10.5px]" data-act="pr:timer" data-sec="${it.sec}" data-title="${it.title}" data-cue="${it.cue}">${it.sec >= 60 ? Math.round(it.sec / 60) + 'м' : it.sec + 'с'}</button>` : ''}
             </div>`;
           }).join('')}
         </div>
@@ -182,10 +183,10 @@ function warmBlock(st, sess, ex, sets) {
   const doneArr = sess?.warm?.[ex.id] || [];
   const doneN = warm.filter((_, j) => doneArr[j]).length;
   return `
-  <div class="mt-3 rounded-2xl bg-black/35 border border-white/[0.06] overflow-hidden">
-    <button class="w-full min-h-[44px] px-3.5 py-2 flex items-center justify-between text-left" data-act="tr:warm" data-ex="${ex.id}">
-      <span class="font-mono text-[11px] uppercase tracking-wider text-zinc-400">Разминочная пирамида &middot; ${warm.length} подх. до ${fmt(target)} кг</span>
-      <span class="font-mono text-[12px] text-zinc-400 flex items-center gap-1.5">${doneN}/${warm.length} <span class="chev ${open ? 'is-open' : ''}">${icon('chevronDown', 16)}</span></span>
+  <div class="mt-2.5 rounded-xl bg-black/35 border border-white/[0.07] overflow-hidden">
+    <button class="w-full min-h-[38px] px-3 py-1.5 flex items-center justify-between text-left" data-act="tr:warm" data-ex="${ex.id}">
+      <span class="font-mono text-[10.5px] uppercase tracking-wider text-zinc-400">Разминка &middot; ${warm.length} подх. до ${fmt(target)} кг</span>
+      <span class="font-mono text-[11px] text-zinc-400 flex items-center gap-1">${doneN}/${warm.length} <span class="chev ${open ? 'is-open' : ''}">${icon('chevronDown', 14)}</span></span>
     </button>
     ${open ? `
       <div class="border-t border-white/[0.06] divide-y divide-white/[0.04] anim-expand">
@@ -193,12 +194,12 @@ function warmBlock(st, sess, ex, sets) {
           const pb = plateBreakdown(x.w, st.profile.bar, st.profile.collar);
           const pl = pb.plates.length ? pb.plates.map(p => fmt(p)).join(' + ') : 'пустой гриф';
           return `
-          <button class="w-full px-3.5 py-2.5 flex items-center justify-between text-left ${doneArr[j] ? 'opacity-50' : ''}" data-act="tr:warmcheck" data-ex="${ex.id}" data-j="${j}">
+          <button class="w-full px-3 py-2 flex items-center justify-between text-left ${doneArr[j] ? 'opacity-50' : ''}" data-act="tr:warmcheck" data-ex="${ex.id}" data-j="${j}">
             <div>
-              <span class="font-display text-[15px] font-bold text-white">${fmt(x.w)} кг &times; ${x.r}</span>
-              <span class="block font-mono text-[11px] text-zinc-400">${x.p ? Math.round(x.p * 100) + '% · ' : ''}${pl} на сторону</span>
+              <span class="font-display text-[13.5px] font-bold text-white">${fmt(x.w)} кг &times; ${x.r}</span>
+              <span class="block font-mono text-[10.5px] text-zinc-400">${x.p ? Math.round(x.p * 100) + '% · ' : ''}${pl} на сторону</span>
             </div>
-            <span class="w-6 h-6 rounded-lg grid place-items-center border ${doneArr[j] ? 'bg-emerald-500 border-emerald-400 text-black' : 'border-white/15 text-transparent'}">${icon('check', 14)}</span>
+            <span class="w-5 h-5 rounded-md grid place-items-center border ${doneArr[j] ? 'bg-emerald-500 border-emerald-400 text-black' : 'border-white/15 text-transparent'}">${icon('check', 13)}</span>
           </button>`;
         }).join('')}
       </div>` : ''}
@@ -215,32 +216,40 @@ function visualBarbellCards(st, ex, sets) {
   const topRepsText = s0.type === 'top' ? `кг \u00D7 ${s0.r}` : `кг \u00D7 ${s0.r} &middot; ${sets.length} подх.`;
 
   let html = `
-  <div class="ref-subcard mt-3" data-act="tr:calcWeight" data-w="${s0.w}">
-    <div class="ref-eyebrow text-accent">${topTitle}</div>
-    <div class="flex items-baseline gap-2 mt-1">
-      <span class="font-display text-[36px] font-extrabold leading-none tracking-tight text-white">${fmt(s0.w)}</span>
-      <span class="text-[18px] font-semibold text-zinc-400">${topRepsText}</span>
+  <div class="ref-subcard mt-2.5" data-act="tr:calcWeight" data-w="${s0.w}">
+    <div class="flex items-center justify-between gap-2">
+      <div>
+        <div class="ref-eyebrow text-accent">${topTitle}</div>
+        <div class="flex items-baseline gap-1.5 mt-0.5">
+          <span class="font-display text-[26px] font-bold leading-none tracking-tight text-white">${fmt(s0.w)}</span>
+          <span class="text-[14px] font-semibold text-zinc-400">${topRepsText}</span>
+        </div>
+      </div>
+      <div class="w-[155px] shrink-0">
+        ${barbellSVG(pb0.plates, { collar: st.profile.collar > 0, compact: true })}
+      </div>
     </div>
     ${platePillsHTML(st, s0.w)}
-    <div class="max-w-[235px] mx-auto mt-2">
-      ${barbellSVG(pb0.plates, { collar: st.profile.collar > 0, compact: true })}
-    </div>
   </div>`;
 
   if (boSets.length) {
     const b0 = boSets[0];
     const pbBo = plateBreakdown(b0.w, st.profile.bar, st.profile.collar);
     html += `
-    <div class="ref-subcard mt-2.5" data-act="tr:calcWeight" data-w="${b0.w}">
-      <div class="ref-eyebrow text-accent">ПОТОМ</div>
-      <div class="flex items-baseline gap-2 mt-1">
-        <span class="font-display text-[36px] font-extrabold leading-none tracking-tight text-white">${fmt(b0.w)}</span>
-        <span class="text-[18px] font-semibold text-zinc-400">кг \u00D7 ${b0.r} &middot; ${boSets.length} подх.</span>
+    <div class="ref-subcard mt-2" data-act="tr:calcWeight" data-w="${b0.w}">
+      <div class="flex items-center justify-between gap-2">
+        <div>
+          <div class="ref-eyebrow text-accent">ПОТОМ</div>
+          <div class="flex items-baseline gap-1.5 mt-0.5">
+            <span class="font-display text-[25px] font-bold leading-none tracking-tight text-white">${fmt(b0.w)}</span>
+            <span class="text-[13.5px] font-semibold text-zinc-400">кг \u00D7 ${b0.r} &middot; ${boSets.length} подх.</span>
+          </div>
+        </div>
+        <div class="w-[155px] shrink-0">
+          ${barbellSVG(pbBo.plates, { collar: st.profile.collar > 0, compact: true })}
+        </div>
       </div>
       ${platePillsHTML(st, b0.w)}
-      <div class="max-w-[235px] mx-auto mt-2">
-        ${barbellSVG(pbBo.plates, { collar: st.profile.collar > 0, compact: true })}
-      </div>
     </div>`;
   }
   return html;
@@ -255,28 +264,28 @@ function setRowHTML(st, sess, ex, s, i) {
 
   return `
   <div class="ref-set-card ${s.done ? 'is-done' : ''}">
-    <div class="flex items-center gap-2.5">
+    <div class="flex items-center gap-2">
       <button class="ref-check ${s.done ? 'is-on' : ''}" data-act="tr:toggle" data-key="${key}" aria-pressed="${s.done}" aria-label="Отметить подход">
-        ${icon('check', 24)}
+        ${icon('check', 20)}
       </button>
-      <span class="font-mono text-[14px] font-bold w-9 ${isTop ? 'text-accent' : 'text-zinc-400'}">${tagText}</span>
+      <span class="font-mono text-[12px] font-bold w-8 ${isTop ? 'text-accent' : 'text-zinc-400'}">${tagText}</span>
       <button class="ref-val-box" data-act="tr:edit" data-key="${key}">
         <span>${wText(ex, s.w)}</span>
       </button>
-      <span class="text-zinc-500 font-mono text-sm">&times;</span>
+      <span class="text-zinc-500 font-mono text-xs">&times;</span>
       <button class="ref-val-box ref-val-reps" data-act="tr:edit" data-key="${key}">
         <span>${s.r}${unitSuffix}</span>
       </button>
       <div class="flex-1"></div>
       <button class="ref-edit-btn" data-act="tr:edit" data-key="${key}" aria-label="Изменить вес и повторы">
-        ${icon('pencil', 17)}
+        ${icon('pencil', 15)}
       </button>
     </div>
 
     ${s.done ? `
-    <div class="mt-3.5 pt-3 border-t border-white/[0.07] anim-expand">
-      <div class="ref-sublabel mb-2">КАК ПОШЁЛ</div>
-      <div class="grid grid-cols-5 gap-1.5">
+    <div class="mt-2.5 pt-2.5 border-t border-white/[0.07] anim-expand">
+      <div class="ref-sublabel mb-1.5">КАК ПОШЁЛ</div>
+      <div class="grid grid-cols-5 gap-1">
         ${SPEED_LIST.map(sp => `
           <button class="feel-btn ${s.speed === sp.key ? 'is-on' : ''}" data-act="tr:speed" data-key="${key}" data-v="${sp.key}">
             ${signalBars(sp.bars)}
@@ -284,8 +293,8 @@ function setRowHTML(st, sess, ex, s, i) {
           </button>`).join('')}
       </div>
 
-      <div class="ref-sublabel mt-3 mb-2">ЕЩЁ МОГ ПОВТОРОВ &middot; ЕСЛИ ЗНАЕШЬ</div>
-      <div class="grid grid-cols-5 gap-1.5">
+      <div class="ref-sublabel mt-2.5 mb-1.5">ЕЩЁ МОГ ПОВТОРОВ &middot; ЕСЛИ ЗНАЕШЬ</div>
+      <div class="grid grid-cols-5 gap-1">
         ${RIR_OPTIONS.map(v => `
           <button class="rir-btn ${s.rir === v ? 'is-on' : ''}" data-act="tr:rir" data-key="${key}" data-v="${v}">
             ${v === 4 ? '4+' : v}
@@ -307,38 +316,39 @@ function exerciseCard(st, sess, ex, idx) {
   if (delta.verdict !== 'nodata') {
     if (ex.kind === 'acc') {
       deltaBadge = delta.verdict === 'up'
-        ? `<div class="mt-3 text-[12.5px] font-mono text-emerald-400">Следующая тренировка: ${fmt(delta.w)} кг</div>`
+        ? `<div class="mt-2.5 text-[11.5px] font-mono text-emerald-400">Следующая тренировка: ${fmt(delta.w)} кг</div>`
         : '';
     } else if (delta.delta) {
-      deltaBadge = `<div class="mt-3 text-[12.5px] font-mono ${delta.delta > 0 ? 'text-emerald-400' : 'text-amber-400'}">Саморасчёт на следующую: ${fmtSigned(delta.delta)} кг</div>`;
+      deltaBadge = `<div class="mt-2.5 text-[11.5px] font-mono ${delta.delta > 0 ? 'text-emerald-400' : 'text-amber-400'}">Саморасчёт на следующую: ${fmtSigned(delta.delta)} кг</div>`;
     }
   }
 
   return `
-  <article class="ref-card p-4" id="ex-${ex.id}">
-    <div class="flex items-start justify-between gap-2">
-      <div class="text-accent">${exerciseIcon(ex.ico, 42)}</div>
-      <div class="flex items-center gap-1.5">
+  <article class="ref-card p-3.5" id="ex-${ex.id}">
+    <div class="flex items-start justify-between gap-2.5">
+      <div class="flex items-start gap-2.5 min-w-0">
+        ${exerciseIcon(ex.ico, 40)}
+        <div class="min-w-0">
+          <div class="font-mono text-[11px] tracking-wider uppercase">
+            <span class="text-accent font-bold">${numStr}</span>
+            <span class="text-zinc-400 ml-1">${label}</span>
+          </div>
+          <h2 class="text-[17px] font-display font-bold leading-snug text-white mt-0.5">${ex.name}</h2>
+          <p class="text-[12px] text-zinc-400">${ex.sub}</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-1 shrink-0">
         ${ex.baseMax ? `<span class="ref-meta-pill">${ex.pct}% &middot; ${ex.baseMax}</span>` : `<span class="ref-meta-pill">${ex.sets.length} подх.</span>`}
-        <button class="ref-edit-btn ${cueOpen ? 'border-white/30 text-white' : ''}" data-act="tr:cue" data-ex="${ex.id}" aria-label="Техника выполнения">${icon('info', 17)}</button>
+        <button class="ref-edit-btn ${cueOpen ? 'border-white/30 text-white' : ''}" data-act="tr:cue" data-ex="${ex.id}" aria-label="Техника выполнения">${icon('info', 15)}</button>
       </div>
     </div>
 
-    <div class="mt-2.5">
-      <div class="font-mono text-[13px] tracking-wider uppercase">
-        <span class="text-accent font-bold">${numStr}</span>
-        <span class="text-zinc-400 ml-1">${label}</span>
-      </div>
-      <h2 class="text-[24px] font-extrabold leading-tight text-white mt-0.5">${ex.name}</h2>
-      <p class="text-[13px] text-zinc-400 mt-0.5">${ex.sub}</p>
-    </div>
-
-    ${cueOpen ? `<div class="mt-3 p-3 rounded-2xl bg-white/[0.04] border border-white/[0.08] text-[13px] text-zinc-300 leading-relaxed anim-expand">${ex.cue}</div>` : ''}
+    ${cueOpen ? `<div class="mt-2.5 p-2.5 rounded-xl bg-white/[0.04] border border-white/[0.08] text-[12px] text-zinc-300 leading-relaxed anim-expand">${ex.cue}</div>` : ''}
 
     ${warmBlock(st, sess, ex, sets)}
     ${visualBarbellCards(st, ex, sets)}
 
-    <div class="mt-3 space-y-2.5">
+    <div class="mt-2.5 space-y-2">
       ${sets.map((s, i) => setRowHTML(st, sess, ex, s, i)).join('')}
     </div>
     ${deltaBadge}
@@ -432,7 +442,7 @@ function plateBlock(st, weight) {
   return `
     <div class="ref-subcard mt-3">
       ${platePillsHTML(st, weight)}
-      <div class="mt-3">
+      <div class="mt-2.5">
         ${barbellSVG(pb.plates, { collar: P.collar > 0, compact: false })}
       </div>
     </div>`;
@@ -453,14 +463,14 @@ function renderEditor() {
     <div class="flex items-start justify-between gap-3">
       <div>
         <div class="ref-eyebrow text-accent">${ex.name}</div>
-        <h3 class="text-[20px] font-extrabold text-white mt-1">Настройка подхода #${editing.i + 1}</h3>
+        <h3 class="text-[17px] font-display font-bold text-white mt-1">Подход #${editing.i + 1}</h3>
       </div>
-      <button class="icon-btn" data-act="sheet:close" aria-label="Закрыть">${icon('x', 20)}</button>
+      <button class="icon-btn" data-act="sheet:close" aria-label="Закрыть">${icon('x', 18)}</button>
     </div>
     ${ex.bw ? '' : `
-    <div class="flex items-end justify-center gap-2 mt-4">
-      <span class="font-display text-[52px] font-extrabold leading-none text-white">${wText(ex, s.w)}</span>
-      <span class="text-zinc-400 mb-2 font-bold">кг</span>
+    <div class="flex items-end justify-center gap-2 mt-3">
+      <span class="font-display text-[42px] font-bold leading-none text-white">${wText(ex, s.w)}</span>
+      <span class="text-zinc-400 mb-1.5 font-semibold">кг</span>
     </div>
     <div class="grid grid-cols-4 gap-2 mt-3">
       <button class="step-lg" data-act="ed:w" data-d="${-stepB}">\u2212${fmt(stepB)}</button>
@@ -469,16 +479,16 @@ function renderEditor() {
       <button class="step-lg" data-act="ed:w" data-d="${stepB}">+${fmt(stepB)}</button>
     </div>
     ${ex.bar ? plateBlock(st, s.w) : ''}`}
-    <div class="metric-row mt-4">
-      <span class="text-[14px] font-bold text-zinc-200">${ex.unit === 'reps' ? 'Повторения' : ex.unit === 'm' ? 'Дистанция, м' : 'Время, с'}</span>
+    <div class="metric-row mt-3">
+      <span class="text-[13.5px] font-bold text-zinc-200">${ex.unit === 'reps' ? 'Повторения' : ex.unit === 'm' ? 'Дистанция, м' : 'Время, с'}</span>
       <div class="flex items-center gap-2">
-        <button class="step-btn" data-act="ed:r" data-d="${ex.unit === 'reps' ? -1 : -5}">${icon('minus', 18)}</button>
-        <span class="font-display text-[24px] font-extrabold w-[60px] text-center">${s.r}</span>
-        <button class="step-btn" data-act="ed:r" data-d="${ex.unit === 'reps' ? 1 : 5}">${icon('plus', 18)}</button>
+        <button class="step-btn" data-act="ed:r" data-d="${ex.unit === 'reps' ? -1 : -5}">${icon('minus', 16)}</button>
+        <span class="font-display text-[20px] font-bold w-[54px] text-center">${s.r}</span>
+        <button class="step-btn" data-act="ed:r" data-d="${ex.unit === 'reps' ? 1 : 5}">${icon('plus', 16)}</button>
       </div>
     </div>
-    <div class="grid grid-cols-2 gap-2.5 mt-5">
-      <button class="btn btn-ghost" data-act="ed:reset">${icon('reset', 16)}<span>По плану</span></button>
+    <div class="grid grid-cols-2 gap-2 mt-4">
+      <button class="btn btn-ghost" data-act="ed:reset">${icon('reset', 15)}<span>По плану</span></button>
       <button class="btn btn-primary" data-act="sheet:close">Готово</button>
     </div>
   </div>`;
@@ -541,15 +551,15 @@ function renderCalc() {
     <div class="flex items-start justify-between">
       <div>
         <div class="ref-eyebrow text-accent">ШТАНГА И БЛИНЫ</div>
-        <h3 class="text-[20px] font-extrabold text-white mt-1">Калькулятор дисков</h3>
+        <h3 class="text-[18px] font-display font-bold text-white mt-1">Калькулятор дисков</h3>
       </div>
-      <button class="icon-btn" data-act="sheet:close" aria-label="Закрыть">${icon('x', 20)}</button>
+      <button class="icon-btn" data-act="sheet:close" aria-label="Закрыть">${icon('x', 18)}</button>
     </div>
-    <div class="flex items-end justify-center gap-2 mt-4">
-      <span class="font-display text-[54px] font-extrabold leading-none text-white">${fmt(calcW)}</span>
-      <span class="text-zinc-400 mb-2 font-bold">кг</span>
+    <div class="flex items-end justify-center gap-2 mt-3">
+      <span class="font-display text-[44px] font-bold leading-none text-white">${fmt(calcW)}</span>
+      <span class="text-zinc-400 mb-1.5 font-semibold">кг</span>
     </div>
-    <div class="grid grid-cols-4 gap-2 mt-4">
+    <div class="grid grid-cols-4 gap-2 mt-3">
       ${[-10, -2.5, 2.5, 10].map(v => `<button class="step-lg" data-act="calc:w" data-d="${v}">${v > 0 ? '+' : '\u2212'}${fmt(Math.abs(v))}</button>`).join('')}
     </div>
     <div class="grid grid-cols-6 gap-1.5 mt-2">
