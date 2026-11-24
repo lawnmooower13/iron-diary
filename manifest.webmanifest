@@ -1,0 +1,20 @@
+{
+  "name": "Железный дневник · Iron Diary",
+  "short_name": "Железный дневник",
+  "description": "Автономная PWA-лаборатория соревновательного пауэрлифтинга и стронгмена",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#060709",
+  "theme_color": "#070709",
+  "lang": "ru",
+  "icons": [
+    {
+      "src": "./icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -1,61 +1,74 @@
-// Service Worker: Кэширование для 100% офлайн работы в подвальном зале без интернета
-
-const CACHE_NAME = 'iron-diary-cache-v2';
-const ASSETS_TO_CACHE = [
+/* ==========================================================================
+   IRON DIARY · sw.js
+   Offline-first Service Worker for GitHub Pages and local PWA execution.
+   ========================================================================== */
+const CACHE = 'iron-diary-v3';
+const CORE = [
   './',
   './index.html',
-  './manifest.json',
-  './css/style.css',
-  './js/program.js',
-  './js/plates.js',
-  './js/timer.js',
+  './manifest.webmanifest',
+  './icons/icon.svg',
   './js/app.js',
-  './icons/icon.svg'
+  './js/engine.js',
+  './js/program.js',
+  './js/store.js',
+  './js/timer.js',
+  './js/ui.js',
+  './js/session.js',
+  './js/views/training.js',
+  './js/views/protocols.js',
+  './js/views/readiness.js',
+  './js/views/nutrition.js',
+  './js/views/analytics.js',
 ];
 
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      console.log('Кэширование файлов Железного Дневника для офлайн режима');
-      return cache.addAll(ASSETS_TO_CACHE);
-    }).then(() => self.skipWaiting())
+self.addEventListener('install', (e) => {
+  e.waitUntil(
+    caches.open(CACHE).then((c) => c.addAll(CORE)).then(() => self.skipWaiting())
   );
 });
 
-self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys().then((keys) => {
-      return Promise.all(
-        keys.map((key) => {
-          if (key !== CACHE_NAME) {
-            console.log('Удаление старого кэша:', key);
-            return caches.delete(key);
+self.addEventListener('activate', (e) => {
+  e.waitUntil(
+    caches.keys().then((keys) =>
+      Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))
+    ).then(() => self.clients.claim())
+  );
+});
+
+self.addEventListener('fetch', (e) => {
+  const req = e.request;
+  if (req.method !== 'GET') return;
+  const url = new URL(req.url);
+
+  /* Same-origin assets: cache-first with background refresh */
+  if (url.origin === self.location.origin) {
+    e.respondWith(
+      caches.match(req).then((cached) => {
+        const net = fetch(req).then((res) => {
+          if (res && res.status === 200) {
+            const copy = res.clone();
+            caches.open(CACHE).then((c) => c.put(req, copy));
           }
-        })
-      );
-    }).then(() => self.clients.claim())
-  );
-});
+          return res;
+        }).catch(() => cached);
+        return cached || net;
+      })
+    );
+    return;
+  }
 
-self.addEventListener('fetch', (event) => {
-  event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      if (cachedResponse) {
-        return cachedResponse;
-      }
-      return fetch(event.request).then((networkResponse) => {
-        if (!networkResponse || networkResponse.status !== 200 || networkResponse.type !== 'basic') {
-          return networkResponse;
+  /* Cross-origin (Google Fonts / Tailwind CDN): cache on first fetch for offline gym use */
+  e.respondWith(
+    caches.match(req).then((cached) => {
+      if (cached) return cached;
+      return fetch(req).then((res) => {
+        if (res && (res.status === 200 || res.type === 'opaque')) {
+          const copy = res.clone();
+          caches.open(CACHE).then((c) => c.put(req, copy));
         }
-        const responseToCache = networkResponse.clone();
-        caches.open(CACHE_NAME).then((cache) => {
-          cache.put(event.request, responseToCache);
-        });
-        return networkResponse;
-      }).catch(() => {
-        // Если сеть упала, отдаём заглавную страницу
-        return caches.match('./index.html');
-      });
+        return res;
+      }).catch(() => cached);
     })
   );
 });
