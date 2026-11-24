@@ -1,27 +1,31 @@
 /* ==========================================================================
    IRON DIARY · app.js
-   Application shell, Wake Lock API, methodology dossier, event delegation,
-   bottom dock navigation, Service Worker registration.
+   Application shell matching reference UI:
+   - Header: "ЖЕЛЕЗНЫЙ ДНЕВНИК" (with dynamic tab accent color on "ДНЕВНИК"),
+     green status dot "СОХРАНЕНО · ОФЛАЙН", week switcher "< НЕД 1/8 >",
+     and Wake Lock API toggle.
+   - Bottom Dock: 5 tabs ("Зал", "Еда", "Форма", "Сила", "Неделя") with
+     dynamic per-tab accent glow (Red, Green, Purple, Orange, Blue).
    ========================================================================== */
 import * as S from './store.js';
-import { fmtDuration, fmt } from './engine.js';
-import { methodSections } from './program.js';
+import { fmt, clamp } from './engine.js';
+import { WEEKS, methodSections } from './program.js';
 import {
   icon, actions, on, mountSheet, mountToast, openSheet, closeSheet, refreshSheet, toast,
 } from './ui.js';
 import * as T from './timer.js';
-import * as Train from './views/training.js';
-import * as Proto from './views/protocols.js';
-import * as Cns from './views/readiness.js';
+import * as Gym from './views/training.js';
 import * as Food from './views/nutrition.js';
-import * as Stats from './views/analytics.js';
+import * as Body from './views/readiness.js';
+import * as Strength from './views/analytics.js';
+import * as Week from './views/protocols.js';
 
 const VIEWS = {
-  train: { title: 'Тренировка', sub: 'Тренировочный день', render: Train.render, ico: 'train' },
-  proto: { title: 'Протоколы',  sub: 'Разминка и декомпрессия', render: Proto.render, ico: 'proto' },
-  cns:   { title: 'ЦНС',        sub: 'Мониторинг восстановления', render: Cns.render, ico: 'cns' },
-  food:  { title: 'Режим',      sub: 'Питание, вода и добавки', render: Food.render, ico: 'food' },
-  stats: { title: 'Аналитика',  sub: 'Рекорды, тоннаж и бэкап', render: Stats.render, ico: 'stats' },
+  gym:      { title: 'Зал',    ico: 'gym',      render: Gym.render },
+  food:     { title: 'Еда',    ico: 'food',     render: Food.render },
+  body:     { title: 'Форма',  ico: 'body',     render: Body.render },
+  strength: { title: 'Сила',   ico: 'strength', render: Strength.render },
+  week:     { title: 'Неделя', ico: 'week',     render: Week.render },
 };
 
 /* ----------------------------------------------------------- Wake Lock */
@@ -31,7 +35,7 @@ let wakeSentinel = null;
 async function applyWakeLock(want, silent = false) {
   wakeWanted = want;
   if (!('wakeLock' in navigator)) {
-    if (want && !silent) toast('Wake Lock API не поддерживается браузером', 'warn');
+    if (want && !silent) toast('Wake Lock не поддерживается браузером', 'warn');
     paintHeader();
     return;
   }
@@ -42,7 +46,7 @@ async function applyWakeLock(want, silent = false) {
         wakeSentinel = null;
         paintHeader();
       });
-      if (!silent) toast('Экран удерживается включённым', 'ice');
+      if (!silent) toast('Экран не будет гаснуть во время отдыха', 'ok');
     } else if (!want && wakeSentinel) {
       await wakeSentinel.release();
       wakeSentinel = null;
@@ -50,7 +54,6 @@ async function applyWakeLock(want, silent = false) {
     }
   } catch (e) {
     wakeSentinel = null;
-    if (want && !silent) toast('Не удалось активировать Wake Lock', 'warn');
   }
   paintHeader();
 }
@@ -59,10 +62,6 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && wakeWanted && !wakeSentinel) {
     applyWakeLock(true, true);
   }
-});
-
-document.addEventListener('iron:wake', (e) => {
-  applyWakeLock(!!e.detail, true);
 });
 
 /* ----------------------------------------------------- Methodology Sheet */
@@ -78,8 +77,8 @@ function openMethodSheet() {
     <div class="pt-1">
       <div class="flex items-start justify-between gap-2">
         <div>
-          <div class="eyebrow">Методическое досье · ${P.height} см / ${fmt(P.bw, 1)} кг / размах ${P.wingspan} см</div>
-          <h3 class="font-display text-[18px] tracking-tight mt-1">Архитектура цикла и биомеханика</h3>
+          <div class="ref-eyebrow text-accent">МЕТОДИКА &middot; ${P.height} СМ / РАЗМАХ ${P.wingspan} СМ</div>
+          <h3 class="text-[20px] font-extrabold text-white mt-1">Архитектура цикла и рычаги</h3>
         </div>
         <button class="icon-btn" data-act="sheet:close" aria-label="Закрыть">${icon('x', 20)}</button>
       </div>
@@ -88,15 +87,24 @@ function openMethodSheet() {
           <button class="chip-btn whitespace-nowrap ${i === methodIdx ? 'is-on' : ''}" data-act="app:methodTab" data-i="${i}">${s.title}</button>`).join('')}
       </div>
       <div class="prose-lab mt-3">${cur.body}</div>
-      <button class="btn btn-primary w-full mt-5" data-act="sheet:close">Понятно</button>
+      <div class="grid grid-cols-2 gap-2 mt-4">
+        <button class="btn btn-ghost" data-act="app:plates">${icon('disc', 17)}<span>Калькулятор блинов</span></button>
+        <button class="btn btn-primary" data-act="sheet:close">Понятно</button>
+      </div>
     </div>`;
   });
 }
 
 on('app:method', () => openMethodSheet());
 on('app:methodTab', (el) => { methodIdx = +el.dataset.i; refreshSheet(); });
-on('app:plates', () => Train.openPlateCalc());
+on('app:plates', () => { closeSheet(); setTimeout(() => Gym.openPlateCalc(), 230); });
 on('app:wake', () => applyWakeLock(!wakeWanted));
+on('app:weekStep', (el) => {
+  const d = +el.dataset.d;
+  S.update(st => {
+    st.ui.week = clamp((st.ui.week || 1) + d, 1, WEEKS.length);
+  });
+});
 
 on('nav', (el) => {
   const tab = el.dataset.tab;
@@ -118,31 +126,30 @@ let dockEl = null;
 function paintHeader() {
   if (!headerEl) return;
   const st = S.get();
-  const v = VIEWS[st.ui.tab] || VIEWS.train;
+  const tab = st.ui.tab || 'gym';
+  document.body.dataset.theme = tab;
   const wakeActive = !!(wakeSentinel || wakeWanted);
+
   headerEl.innerHTML = `
-    <div class="max-w-[480px] mx-auto px-4 h-[60px] flex items-center justify-between gap-2">
-      <div class="flex items-center gap-2.5 min-w-0">
-        <div class="brand-mark"><span>ID</span></div>
-        <div class="min-w-0">
-          <div class="flex items-center gap-1.5">
-            <span class="font-display text-[13px] tracking-tight text-chrome-100">ЖЕЛЕЗНЫЙ ДНЕВНИК</span>
-            <span class="offline-dot" title="Автономный режим PWA"></span>
-          </div>
-          <div class="text-[11px] text-chrome-500 truncate">${v.sub} · Ц${st.cycle.n}Н${st.ui.week}Д${st.ui.day}</div>
+    <div class="max-w-[480px] mx-auto px-3.5 h-[66px] flex items-center justify-between gap-2">
+      <div class="min-w-0 flex-1">
+        <button class="text-left block truncate" data-act="app:method" title="Методика и биомеханика">
+          <span class="brand-title">ЖЕЛЕЗНЫЙ <span class="text-accent">ДНЕВНИК</span></span>
+        </button>
+        <div class="flex items-center gap-2 mt-1">
+          <span class="save-dot"></span>
+          <span class="save-text">СОХРАНЕНО &middot; ОФЛАЙН</span>
+          <button class="wake-chip ${wakeActive ? 'is-on' : ''}" data-act="app:wake" title="Удерживать экран включённым">
+            ${icon(wakeActive ? 'eye' : 'eyeOff', 13)}
+            <span>${wakeActive ? 'ЭКРАН ВКЛ' : 'ЭКРАН'}</span>
+          </button>
         </div>
       </div>
-      <div class="flex items-center gap-1.5 shrink-0">
-        <button class="hdr-btn" data-act="app:plates" aria-label="Калькулятор дисков" title="Калькулятор дисков">
-          ${icon('disc', 18)}
-        </button>
-        <button class="hdr-btn" data-act="app:method" aria-label="Методика и анализ рычагов" title="Методика и биомеханика">
-          ${icon('info', 18)}
-        </button>
-        <button class="hdr-btn ${wakeActive ? 'is-wake' : ''}" data-act="app:wake" aria-pressed="${wakeActive}" aria-label="Не гасить экран">
-          ${icon(wakeActive ? 'eye' : 'eyeOff', 18)}
-          <span class="font-mono text-[10px] hidden xs:inline">${wakeActive ? 'ЭКРАН' : 'СОН'}</span>
-        </button>
+
+      <div class="week-pill shrink-0">
+        <button class="week-pill-arrow" data-act="app:weekStep" data-d="-1" aria-label="Предыдущая неделя">${icon('chevronLeft', 16)}</button>
+        <button class="week-pill-label" data-act="nav" data-tab="week">НЕД ${st.ui.week}/${WEEKS.length}</button>
+        <button class="week-pill-arrow" data-act="app:weekStep" data-d="1" aria-label="Следующая неделя">${icon('chevronRight', 16)}</button>
       </div>
     </div>`;
 }
@@ -150,12 +157,12 @@ function paintHeader() {
 function paintDock() {
   if (!dockEl) return;
   const st = S.get();
-  const cur = st.ui.tab || 'train';
+  const cur = st.ui.tab || 'gym';
   dockEl.innerHTML = `
-    <div class="dock-inner glass-strong">
+    <div class="dock-bar">
       ${Object.entries(VIEWS).map(([k, v]) => `
-        <button class="dock-btn ${cur === k ? 'is-on' : ''}" data-act="nav" data-tab="${k}" aria-current="${cur === k ? 'page' : 'false'}">
-          ${icon(v.ico, 21)}
+        <button class="dock-item ${cur === k ? 'is-on' : ''}" data-act="nav" data-tab="${k}" aria-current="${cur === k ? 'page' : 'false'}">
+          ${icon(v.ico, 22)}
           <span>${v.title}</span>
         </button>`).join('')}
     </div>`;
@@ -164,9 +171,9 @@ function paintDock() {
 function paintMain() {
   if (!mainEl) return;
   const st = S.get();
-  const v = VIEWS[st.ui.tab] || VIEWS.train;
+  const v = VIEWS[st.ui.tab] || VIEWS.gym;
   const active = document.activeElement;
-  if (active && (active.tagName === 'TEXTAREA' || active.tagName === 'INPUT') && mainEl.contains(active)) {
+  if (active && (active.tagName === 'TEXTAREA' || (active.tagName === 'INPUT' && active.type !== 'range')) && mainEl.contains(active)) {
     return;
   }
   mainEl.innerHTML = v.render(st);
@@ -200,7 +207,6 @@ function init() {
   S.subscribe(renderAll);
   renderAll();
 
-  /* Global click delegation */
   document.addEventListener('click', (e) => {
     const el = e.target.closest('[data-act]');
     if (!el || el.disabled) return;
@@ -212,13 +218,13 @@ function init() {
     }
   });
 
-  /* Global input / change delegation */
   document.addEventListener('change', (e) => {
     const el = e.target.closest('[data-change]');
     if (!el) return;
     const fn = actions[el.dataset.change];
     if (fn) fn(el, e);
   });
+
   document.addEventListener('input', (e) => {
     const el = e.target.closest('[data-change]');
     if (!el || el.type === 'file') return;
@@ -226,16 +232,6 @@ function init() {
     if (fn) fn(el, e);
   });
 
-  /* Live session stopwatch ticker */
-  setInterval(() => {
-    const node = document.querySelector('[data-elapsed]');
-    if (node) {
-      const started = +node.dataset.elapsed;
-      if (started) node.textContent = fmtDuration(Date.now() - started);
-    }
-  }, 1000);
-
-  /* Register Service Worker for 100% offline work */
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
     navigator.serviceWorker.register('./sw.js').catch(() => {});
   }

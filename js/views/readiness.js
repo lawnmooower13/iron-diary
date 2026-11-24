@@ -1,11 +1,26 @@
 /* ==========================================================================
-   IRON DIARY · views/readiness.js — Модуль 3: готовность ЦНС
+   IRON DIARY · views/readiness.js — Вкладка 3: «Форма»
+   "Каким ты будешь" interactive anatomical physique morphing card (85..140 kg),
+   calorie & timeline calculator, "Утренний замер · НАТОЩАК", CNS readiness,
+   bodyweight & resting heart rate charts, height/wingspan settings.
    ========================================================================== */
 import * as S from '../store.js';
-import { readiness, ZONES, dateKey, addDays, fmt, dowShort, clamp } from '../engine.js';
-import { icon, on, barChart, esc } from '../ui.js';
+import { MORNING_FEEL } from '../program.js';
+import {
+  readiness, bodyPlan, dateKey, addDays, humanDate, shortDate, fmt, fmtInt, clamp,
+} from '../engine.js';
+import {
+  icon, esc, on, openSheet, closeSheet, toast, physiqueSVG, signalBars, lineChart,
+} from '../ui.js';
+import * as T from '../timer.js';
 
-const DEFAULT_ENTRY = { sleep: 8, quality: 4, hr: 58, doms: 2 };
+let activeDate = null;
+let editMetric = null;
+
+function curDate() {
+  if (!activeDate) activeDate = dateKey();
+  return activeDate;
+}
 
 export function baselineHr(st) {
   const today = dateKey();
@@ -15,154 +30,337 @@ export function baselineHr(st) {
     if (e && e.hr) vals.push(e.hr);
   }
   if (vals.length >= 3) return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
-  return st.profile.baselineHr;
+  return st.profile.baselineHr || 58;
 }
 
-export function todayReadiness(st) {
-  const e = st.readiness[dateKey()];
+export function todayReadiness(st, k = dateKey()) {
+  const e = st.readiness[k];
   if (!e || !e.saved) return null;
   return { ...readiness(e, baselineHr(st)), entry: e };
 }
 
-function draft(st) {
-  const e = st.readiness[dateKey()];
+function entryFor(st, k = curDate()) {
+  const e = st.readiness[k];
   if (e) return e;
-  const last = Object.keys(st.readiness).sort().pop();
-  const base = last ? st.readiness[last] : null;
-  return { ...DEFAULT_ENTRY, hr: base?.hr || st.profile.baselineHr, saved: false };
-}
-
-function gauge(score, tone) {
-  const size = 220, stroke = 10, r = (size - stroke) / 2 - 4;
-  const start = 135, sweep = 270;
-  const polar = (a) => {
-    const rad = (a - 90) * Math.PI / 180;
-    return [size / 2 + r * Math.cos(rad), size / 2 + r * Math.sin(rad)];
+  return {
+    bw: st.profile.bw || 95,
+    hr: st.profile.baselineHr || 62,
+    sleep: 8,
+    quality: 4,
+    doms: 2,
+    note: '',
+    saved: false,
   };
-  const arc = (from, to) => {
-    const [x1, y1] = polar(from), [x2, y2] = polar(to);
-    const large = to - from > 180 ? 1 : 0;
-    return `M${x1.toFixed(2)} ${y1.toFixed(2)} A${r} ${r} 0 ${large} 1 ${x2.toFixed(2)} ${y2.toFixed(2)}`;
-  };
-  const end = start + sweep * clamp(score / 100, 0.001, 1);
-  const ticks = Array.from({ length: 28 }, (_, i) => {
-    const a = start + (sweep / 27) * i;
-    const rad = (a - 90) * Math.PI / 180;
-    const r1 = r - 14, r2 = r - (i % 3 === 0 ? 22 : 18);
-    return `<line x1="${(size / 2 + r1 * Math.cos(rad)).toFixed(1)}" y1="${(size / 2 + r1 * Math.sin(rad)).toFixed(1)}" x2="${(size / 2 + r2 * Math.cos(rad)).toFixed(1)}" y2="${(size / 2 + r2 * Math.sin(rad)).toFixed(1)}" stroke="rgba(255,255,255,${i % 3 === 0 ? 0.18 : 0.07})" stroke-width="1"/>`;
-  }).join('');
-  return `
-  <svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" class="block mx-auto">
-    <path d="${arc(start, start + sweep)}" stroke="rgba(255,255,255,.06)" stroke-width="${stroke}" fill="none" stroke-linecap="round"/>
-    <path d="${arc(start, end)}" stroke="var(--${tone})" stroke-width="${stroke}" fill="none" stroke-linecap="round" class="gauge-arc" style="filter:drop-shadow(0 0 10px var(--${tone}-glow))"/>
-    ${ticks}
-  </svg>`;
-}
-
-function stepper(label, ico, valueHtml, act, unit = '') {
-  return `
-  <div class="metric-row">
-    <div class="flex items-center gap-3 min-w-0">
-      <span class="metric-ico">${icon(ico, 18)}</span>
-      <span class="text-[13px] text-chrome-300">${label}</span>
-    </div>
-    <div class="flex items-center gap-1.5">
-      <button class="step-btn" data-act="${act}" data-d="-1" aria-label="Уменьшить">${icon('minus', 18)}</button>
-      <div class="w-[78px] text-center"><span class="font-mono text-[22px]">${valueHtml}</span><span class="text-[11px] text-chrome-500 ml-1">${unit}</span></div>
-      <button class="step-btn" data-act="${act}" data-d="1" aria-label="Увеличить">${icon('plus', 18)}</button>
-    </div>
-  </div>`;
-}
-
-function scale(label, ico, value, act, hints) {
-  return `
-  <div class="py-3 border-t border-white/[0.05]">
-    <div class="flex items-center justify-between mb-2.5">
-      <div class="flex items-center gap-3"><span class="metric-ico">${icon(ico, 18)}</span><span class="text-[13px] text-chrome-300">${label}</span></div>
-      <span class="text-[11px] text-chrome-500">${hints[value - 1]}</span>
-    </div>
-    <div class="seg seg-5">
-      ${[1, 2, 3, 4, 5].map(v => `<button class="seg-btn ${v === value ? 'is-on' : ''}" data-act="${act}" data-v="${v}">${v}</button>`).join('')}
-    </div>
-  </div>`;
 }
 
 export function render(st) {
-  const e = draft(st);
-  const base = baselineHr(st);
-  const R = readiness(e, base);
-  const Z = ZONES[R.zone];
-  const today = dateKey();
-  const hist = Array.from({ length: 14 }, (_, i) => {
-    const k = addDays(today, i - 13);
-    const x = st.readiness[k];
-    return { label: dowShort(k).slice(0, 2), v: x && x.saved ? readiness(x, base).score : 0 };
-  });
+  const P = st.profile;
+  const k = curDate();
+  const E = entryFor(st, k);
+  const baseHr = baselineHr(st);
+  const R = readiness(E, baseHr);
+  const plan = bodyPlan(P.bw, P.targetBw);
+
+  const bwPoints = (st.bodyweight || []).map(b => ({
+    v: b.kg,
+    label: shortDate(b.date),
+  }));
+
+  const hrKeys = Object.keys(st.readiness || {}).filter(dk => st.readiness[dk]?.saved && st.readiness[dk]?.hr).sort();
+  const hrPoints = hrKeys.slice(-14).map(dk => ({
+    v: st.readiness[dk].hr,
+    label: shortDate(dk),
+  }));
+
+  const pulseStatus = E.saved
+    ? `<div class="hero-pulse-pill mt-4">
+        <span class="w-2.5 h-2.5 rounded-full ${R.zone === 'red' ? 'bg-red-500' : R.zone === 'yellow' ? 'bg-amber-400' : 'bg-emerald-400'}"></span>
+        <span>Индекс ЦНС ${R.score}% &middot; Пульс ${E.hr} уд/мин (норма ${baseHr})</span>
+      </div>`
+    : `<button class="hero-pulse-pill mt-4" data-act="bd:saveMorning">
+        <span class="w-2.5 h-2.5 rounded-full bg-zinc-500"></span>
+        <span>Запиши утренний пульс</span>
+      </button>`;
 
   return `
-  <section class="glass card p-5 text-center relative overflow-hidden">
-    <div class="eyebrow">Индекс готовности ЦНС · сегодня</div>
-    <div class="relative mt-2">
-      ${gauge(R.score, Z.tone)}
-      <div class="absolute inset-0 grid place-items-center">
-        <div>
-          <div class="font-mono text-[60px] leading-none tracking-tight">${R.score}</div>
-          <div class="tag tag-${Z.tone} mt-3 mx-auto">${Z.label}</div>
+  <!-- Card 1: МОЯ ФОРМА · Каким ты будешь -->
+  <section class="ref-card ref-hero hero-body">
+    <div class="ref-eyebrow text-accent">МОЯ ФОРМА</div>
+    <h1 class="ref-hero-title mt-1.5">Каким ты будешь</h1>
+
+    <div class="mt-2" id="physiqueStage">
+      ${physiqueSVG(P.bw, P.targetBw, P.height)}
+    </div>
+
+    <div class="flex items-center justify-between font-mono text-[12px] tracking-wider uppercase mt-2">
+      <span class="text-zinc-400">ПУНКТИР &mdash; СЕЙЧАС ${fmt(P.bw)} КГ</span>
+      <span class="text-accent font-bold" id="targetBwLabel">ЗАЛИВКА &mdash; ЦЕЛЬ ${fmt(P.targetBw)} КГ</span>
+    </div>
+
+    <div class="mt-3">
+      <input
+        type="range"
+        min="85"
+        max="140"
+        step="1"
+        value="${Math.round(P.targetBw)}"
+        class="body-slider"
+        data-change="bd:targetSlider"
+        aria-label="Целевой вес тела"
+      />
+    </div>
+
+    <div class="grid grid-cols-2 gap-2.5 mt-4" id="bodyPlanGrid">
+      <div class="ref-tile">
+        <span class="ref-sublabel">ПЛАН ККАЛ</span>
+        <div class="mt-1 flex items-baseline gap-1.5 flex-wrap">
+          <span class="font-display text-[26px] font-extrabold text-white leading-none">${fmtInt(plan.kcal)}</span>
+          <span class="text-[14px] text-zinc-400 font-semibold">${plan.deltaLabel}</span>
+        </div>
+      </div>
+      <div class="ref-tile">
+        <span class="ref-sublabel">БЕЛОК</span>
+        <div class="mt-1 flex items-baseline gap-1.5">
+          <span class="font-display text-[26px] font-extrabold text-white leading-none">${plan.protein}</span>
+          <span class="text-[14px] text-zinc-400 font-semibold">г/день</span>
+        </div>
+      </div>
+      <div class="ref-tile">
+        <span class="ref-sublabel">СРОК</span>
+        <div class="mt-1 flex items-baseline gap-1.5">
+          <span class="font-display text-[26px] font-extrabold text-white leading-none">${plan.weeks ? plan.weeks : '—'}</span>
+          ${plan.weeks ? `<span class="text-[14px] text-zinc-400 font-semibold">${plan.weeks < 5 ? 'недели' : 'недель'}</span>` : ''}
+        </div>
+      </div>
+      <div class="ref-tile">
+        <span class="ref-sublabel">К ДАТЕ</span>
+        <div class="mt-1">
+          <span class="font-display text-[24px] font-extrabold text-white leading-none">${plan.targetDate ? shortDate(plan.targetDate) : '—'}</span>
         </div>
       </div>
     </div>
-    <h3 class="font-display text-[16px] -mt-4">${Z.title}</h3>
-    <p class="text-[13px] text-chrome-400 mt-2 leading-relaxed max-w-[320px] mx-auto">${Z.text}</p>
-    ${e.saved ? `<div class="text-[11px] text-chrome-500 mt-3 font-mono">ЗАМЕР СОХРАНЁН · ${new Date(e.at || Date.now()).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</div>` : `<div class="text-[11px] text-warn mt-3">Черновик — сохраните замер, чтобы он учитывался в тренировке</div>`}
+
+    <p class="text-[14px] text-zinc-400 mt-4 leading-relaxed">
+      Питание во вкладке «Еда» уже пересчитано под цель. Темп набора &mdash; 0,5–1 кг в неделю. Быстрее &mdash; это в основном жир.
+    </p>
   </section>
 
-  ${R.flags.length ? `
-  <section class="glass card p-4 space-y-2.5">
-    <div class="eyebrow">Предупреждения</div>
-    ${R.flags.map(f => `<div class="flag flag-${f.level}"><span class="flag-bar"></span><span>${esc(f.text)}</span></div>`).join('')}
-  </section>` : ''}
+  <!-- Date Nav -->
+  <div class="flex items-center justify-between gap-2">
+    <button class="ref-nav-arrow" data-act="bd:shiftDate" data-d="-1" aria-label="Предыдущий день">${icon('chevronLeft', 20)}</button>
+    <div class="text-[20px] font-extrabold text-white tracking-tight">${humanDate(k)}</div>
+    <button class="ref-nav-arrow" data-act="bd:shiftDate" data-d="1" aria-label="Следующий день">${icon('chevronRight', 20)}</button>
+  </div>
 
-  <section class="glass card p-4">
-    <div class="flex items-center justify-between mb-1">
-      <div class="eyebrow">Утренний замер</div>
-      <span class="text-[11px] text-chrome-500 font-mono">БАЗА ПУЛЬСА ${base}</span>
-    </div>
-    ${stepper('Сон', 'moon', fmt(e.sleep, 1), 'rd:sleep', 'ч')}
-    ${stepper('Пульс покоя', 'heart', e.hr, 'rd:hr', 'уд/мин')}
-    ${scale('Качество сна', 'bed', e.quality, 'rd:quality', ['ужасно', 'плохо', 'средне', 'хорошо', 'отлично'])}
-    ${scale('Мышечная боль (DOMS)', 'bolt', e.doms, 'rd:doms', ['нет', 'лёгкая', 'умеренная', 'сильная', 'острая'])}
-    <button class="btn btn-primary w-full mt-4" data-act="rd:save">${icon('check', 18)}<span>${e.saved ? 'Обновить замер' : 'Сохранить замер'}</span></button>
-  </section>
-
-  <section class="glass card p-4">
+  <!-- Card 2: Утренний замер · НАТОЩАК -->
+  <section class="ref-card p-4">
     <div class="flex items-center justify-between">
-      <div class="eyebrow">Динамика · 14 дней</div>
-      <span class="text-[11px] text-chrome-500">индекс 0–100</span>
+      <h2 class="text-[24px] font-extrabold text-white">Утренний замер</h2>
+      <span class="ref-eyebrow text-accent">НАТОЩАК</span>
     </div>
-    <div class="mt-3">${barChart(hist, { active: 13 })}</div>
-    <div class="grid grid-cols-4 gap-2 mt-3 text-center">
-      ${[['≥80', 'ok', 'Готов'], ['60–79', 'ice', 'Рабочий'], ['40–59', 'warn', '−7,5%'], ['<40', 'crit', '−15%']].map(([r, t, l]) => `
-        <div class="legend"><span class="legend-dot bg-${t}"></span><div class="font-mono text-[11px] text-chrome-300">${r}</div><div class="text-[10px] text-chrome-500">${l}</div></div>`).join('')}
+
+    <div class="grid grid-cols-3 gap-2.5 mt-4">
+      <button class="ref-metric-box" data-act="bd:editMetric" data-m="bw">
+        <span class="ref-sublabel">ВЕС, КГ</span>
+        <span class="ref-metric-num">${fmt(E.bw ?? P.bw, 1)}</span>
+        <span class="text-[12px] text-zinc-400">после туалета</span>
+      </button>
+      <button class="ref-metric-box" data-act="bd:editMetric" data-m="hr">
+        <span class="ref-sublabel">ПУЛЬС</span>
+        <span class="ref-metric-num">${E.hr}</span>
+        <span class="text-[12px] text-zinc-400">лёжа, 1 мин</span>
+      </button>
+      <button class="ref-metric-box" data-act="bd:editMetric" data-m="sleep">
+        <span class="ref-sublabel">СОН, Ч</span>
+        <span class="ref-metric-num">${fmt(E.sleep, 1)}</span>
+        <span class="text-[12px] text-zinc-400">сколько спал</span>
+      </button>
     </div>
+
+    <div class="mt-4">
+      <div class="ref-sublabel mb-2">КАК ТЫ УТРОМ</div>
+      <div class="grid grid-cols-5 gap-1.5">
+        ${MORNING_FEEL.map(f => `
+          <button class="feel-btn feel-purple ${E.quality === f.key ? 'is-on' : ''}" data-act="bd:feel" data-v="${f.key}">
+            ${signalBars(f.bars)}
+            <span>${f.label}</span>
+          </button>`).join('')}
+      </div>
+    </div>
+
+    <input
+      type="text"
+      class="field mt-3.5"
+      placeholder="Забитость, суставы, настроение — что угодно"
+      value="${esc(E.note || '')}"
+      data-change="bd:note"
+    />
+
+    ${pulseStatus}
+
+    <p class="text-[14px] text-zinc-400 mt-3.5 leading-relaxed">
+      Пульс меряй сразу после пробуждения, ещё в кровати. Если он на 7+ ударов выше нормы &mdash; организм не восстановился.
+    </p>
   </section>
 
-  <section class="glass card p-4">
-    <div class="eyebrow mb-2">Как считается индекс</div>
-    <p class="text-[12.5px] text-chrome-400 leading-relaxed">Сон 35% (линейно от 4 до 8,5 ч) · пульс покоя 30% (каждый удар выше базы снижает балл, +12 — ноль) · качество сна 20% · DOMS 15%. База пульса — среднее последних 7 замеров. Недосып менее 5 ч или пульс +10 к базе автоматически ограничивают зону уровнем «Снижение».</p>
+  <!-- Card 3: Вес тела -->
+  <section class="ref-card p-4">
+    <div class="flex items-center justify-between">
+      <h2 class="text-[22px] font-extrabold text-white">Вес тела</h2>
+      <span class="font-mono text-[13px] text-zinc-400">${fmt(P.bw, 1)} кг</span>
+    </div>
+    ${bwPoints.length >= 2
+      ? lineChart(bwPoints, { color: '#9D6BFF' })
+      : `<p class="text-[14px] text-zinc-400 mt-2.5 leading-relaxed">Вписывай вес каждое утро &mdash; график появится со второго дня</p>`}
+  </section>
+
+  <!-- Card 4: Пульс покоя -->
+  <section class="ref-card p-4">
+    <div class="flex items-center justify-between">
+      <h2 class="text-[22px] font-extrabold text-white">Пульс покоя</h2>
+      <span class="font-mono text-[13px] text-zinc-400">норма ${baseHr} уд/мин</span>
+    </div>
+    ${hrPoints.length >= 2
+      ? lineChart(hrPoints, { color: '#C084FC', fmtY: (v) => Math.round(v) })
+      : `<p class="text-[14px] text-zinc-400 mt-2.5 leading-relaxed">Появится со второго замера. Рост пульса &mdash; ранний признак перегруза</p>`}
+  </section>
+
+  <!-- Card 5: Рост и размах рук -->
+  <section class="ref-card p-4 space-y-3">
+    <div class="flex items-center justify-between">
+      <div>
+        <div class="text-[18px] font-extrabold text-white">Рост</div>
+        <div class="text-[13px] text-zinc-400">для расчёта силуэта</div>
+      </div>
+      <div class="flex items-center gap-2">
+        <button class="ref-val-box" data-act="bd:editMetric" data-m="height">${P.height}</button>
+        <span class="font-mono text-[13px] text-zinc-400">СМ</span>
+      </div>
+    </div>
+    <div class="flex items-center justify-between pt-3 border-t border-white/[0.06]">
+      <div>
+        <div class="text-[18px] font-extrabold text-white">Размах рук</div>
+        <div class="text-[13px] text-zinc-400">рычаги классической тяги (+${P.wingspan - P.height} см)</div>
+      </div>
+      <div class="flex items-center gap-2">
+        <button class="ref-val-box" data-act="bd:editMetric" data-m="wingspan">${P.wingspan}</button>
+        <span class="font-mono text-[13px] text-zinc-400">СМ</span>
+      </div>
+    </div>
   </section>`;
 }
 
-function mutate(fn) {
+/* ---------------------------------------------------------- Actions */
+on('bd:targetSlider', (el) => {
+  const val = clamp(+el.value, 85, 140);
   S.update(st => {
-    const k = dateKey();
-    const cur = st.readiness[k] || draft(st);
+    st.profile.targetBw = val;
+  });
+});
+
+on('bd:shiftDate', (el) => {
+  activeDate = addDays(curDate(), +el.dataset.d);
+  S.update(() => {});
+});
+
+function mutateMorning(fn) {
+  S.update(st => {
+    const k = curDate();
+    const cur = st.readiness[k] || entryFor(st, k);
     fn(cur, st);
+    cur.saved = true;
+    cur.at = Date.now();
     st.readiness[k] = cur;
   });
 }
 
-on('rd:sleep', (el) => mutate(e => { e.sleep = clamp(Math.round((e.sleep + 0.5 * +el.dataset.d) * 2) / 2, 0, 14); }));
-on('rd:hr', (el) => mutate(e => { e.hr = clamp(e.hr + +el.dataset.d, 30, 140); }));
-on('rd:quality', (el) => mutate(e => { e.quality = +el.dataset.v; }));
-on('rd:doms', (el) => mutate(e => { e.doms = +el.dataset.v; }));
-on('rd:save', () => mutate(e => { e.saved = true; e.at = Date.now(); }));
+on('bd:feel', (el) => {
+  const v = +el.dataset.v;
+  mutateMorning(e => { e.quality = v; });
+  if (S.get().profile.vibro) T.haptic(10);
+});
+
+on('bd:note', (el) => {
+  S.update(st => {
+    const k = curDate();
+    const cur = st.readiness[k] || entryFor(st, k);
+    cur.note = el.value.slice(0, 300);
+    st.readiness[k] = cur;
+  }, { silent: true });
+});
+
+on('bd:saveMorning', () => {
+  mutateMorning((e, st) => {
+    if (!e.bw) e.bw = st.profile.bw;
+  });
+  toast('Утренний замер сохранён', 'ok');
+});
+
+/* ------------------------------------------- Metric Editor Sheet */
+function renderMetricSheet() {
+  const st = S.get();
+  const k = curDate();
+  const E = entryFor(st, k);
+  const P = st.profile;
+  const cfg = {
+    bw:       { title: 'Утренний вес тела', unit: 'кг', val: E.bw ?? P.bw, stepA: 0.1, stepB: 0.5 },
+    hr:       { title: 'Пульс покоя лёжа',  unit: 'уд/мин', val: E.hr, stepA: 1, stepB: 5 },
+    sleep:    { title: 'Продолжительность сна', unit: 'ч', val: E.sleep, stepA: 0.5, stepB: 1 },
+    height:   { title: 'Рост атлета', unit: 'см', val: P.height, stepA: 1, stepB: 5 },
+    wingspan: { title: 'Размах рук', unit: 'см', val: P.wingspan, stepA: 1, stepB: 5 },
+  }[editMetric];
+
+  return `
+  <div class="pt-1">
+    <div class="flex items-start justify-between">
+      <div>
+        <div class="ref-eyebrow text-accent">УТРЕННИЙ ЗАМЕР</div>
+        <h3 class="text-[20px] font-extrabold text-white mt-1">${cfg.title}</h3>
+      </div>
+      <button class="icon-btn" data-act="sheet:close" aria-label="Закрыть">${icon('x', 20)}</button>
+    </div>
+    <div class="flex items-end justify-center gap-2 mt-5">
+      <span class="font-display text-[54px] font-extrabold leading-none text-white">${fmt(cfg.val, 1)}</span>
+      <span class="text-zinc-400 mb-2 font-bold">${cfg.unit}</span>
+    </div>
+    <div class="grid grid-cols-4 gap-2 mt-4">
+      <button class="step-lg" data-act="bd:stepMetric" data-d="${-cfg.stepB}">\u2212${fmt(cfg.stepB)}</button>
+      <button class="step-lg" data-act="bd:stepMetric" data-d="${-cfg.stepA}">\u2212${fmt(cfg.stepA)}</button>
+      <button class="step-lg" data-act="bd:stepMetric" data-d="${cfg.stepA}">+${fmt(cfg.stepA)}</button>
+      <button class="step-lg" data-act="bd:stepMetric" data-d="${cfg.stepB}">+${fmt(cfg.stepB)}</button>
+    </div>
+    <button class="btn btn-primary w-full mt-5" data-act="sheet:close">Сохранить</button>
+  </div>`;
+}
+
+on('bd:editMetric', (el) => {
+  editMetric = el.dataset.m;
+  openSheet(renderMetricSheet);
+});
+
+on('bd:stepMetric', (el) => {
+  const d = +el.dataset.d;
+  const k = curDate();
+  if (editMetric === 'height' || editMetric === 'wingspan') {
+    S.update(st => {
+      st.profile[editMetric] = clamp(Math.round(st.profile[editMetric] + d), 140, 240);
+    });
+    return;
+  }
+  mutateMorning((e, st) => {
+    if (editMetric === 'bw') {
+      const kg = Math.round(clamp((e.bw ?? st.profile.bw) + d, 50, 220) * 10) / 10;
+      e.bw = kg;
+      st.profile.bw = kg;
+      const hit = st.bodyweight.find(b => b.date === k);
+      if (hit) hit.kg = kg;
+      else st.bodyweight.push({ date: k, kg });
+      st.bodyweight.sort((a, b) => a.date.localeCompare(b.date));
+    } else if (editMetric === 'hr') {
+      e.hr = clamp(Math.round(e.hr + d), 32, 140);
+    } else if (editMetric === 'sleep') {
+      e.sleep = clamp(Math.round((e.sleep + d) * 2) / 2, 1, 14);
+    }
+  });
+  if (S.get().profile.vibro) T.haptic(6);
+});

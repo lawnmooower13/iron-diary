@@ -1,7 +1,7 @@
 /* ==========================================================================
    IRON DIARY · timer.js
-   Rest timer with absolute timestamps (survives screen lock / reload),
-   Web Audio synthesized cues and Vibration API haptics.
+   Rest timer matching the reference pill design ("ОТДЫХ 2:58  [+30 с] [Стоп]")
+   with bottom progress bar, expandable ring modal, Web Audio API & haptics.
    ========================================================================== */
 import { fmtDuration } from './engine.js';
 import { icon } from './ui.js';
@@ -50,18 +50,11 @@ export function beepDone() {
   if (!ctx) return;
   if (ctx.state === 'suspended') ctx.resume();
   const t = ctx.currentTime + 0.02;
-  // ascending metallic triad + sustained bell
   [[784, 0], [988, 0.16], [1319, 0.32]].forEach(([f, d]) => {
     tone(f, t + d, 0.24, 0.28, 'sine');
     tone(f * 2, t + d, 0.12, 0.05, 'triangle');
   });
   tone(1319, t + 0.58, 0.9, 0.22, 'sine');
-  tone(1976, t + 0.58, 0.5, 0.04, 'sine');
-}
-
-export function beepConfirm() {
-  if (!ctx) return;
-  tone(660, ctx.currentTime, 0.07, 0.08, 'sine');
 }
 
 export function haptic(pattern) {
@@ -89,7 +82,7 @@ function persist() {
   else localStorage.removeItem(LS);
 }
 
-export function start(sec, label = 'Отдых', next = '') {
+export function start(sec, label = 'ОТДЫХ', next = '') {
   unlockAudio();
   clearTimeout(hideTO);
   st = { endAt: Date.now() + sec * 1000, total: sec * 1000, label, next, fired: false, lastTick: null };
@@ -147,8 +140,7 @@ function fire() {
 }
 
 /* ---------------------------------------------------------------- UI */
-const R_S = 19, C_S = 2 * Math.PI * R_S;
-const R_L = 118, C_L = 2 * Math.PI * R_L;
+const R_L = 112, C_L = 2 * Math.PI * R_L;
 
 function onClick(e) {
   const b = e.target.closest('[data-tact]');
@@ -172,49 +164,45 @@ function render() {
   }
   document.body.classList.add('timer-on');
   el.className = 'timer-host' + (st.fired ? ' is-done' : '') + (expanded ? ' is-expanded' : '');
-  const controls = `
-    <button class="t-btn" data-tact="minus" aria-label="Минус 30 секунд">\u221230</button>
-    <button class="t-btn" data-tact="plus" aria-label="Плюс 30 секунд">+30</button>
-    <button class="t-btn t-btn-x" data-tact="stop" aria-label="Закрыть таймер">${icon('x', 18)}</button>`;
+
   if (expanded) {
     el.innerHTML = `
       <div class="t-overlay" data-tact="collapse"></div>
-      <div class="t-full glass-strong anim-sheet">
+      <div class="t-full anim-sheet">
         <div class="flex items-center justify-between w-full mb-2">
-          <span class="eyebrow t-label-js"></span>
+          <span class="eyebrow t-label-js">ОТДЫХ</span>
           <button class="icon-btn" data-tact="collapse" aria-label="Свернуть">${icon('chevronDown', 20)}</button>
         </div>
         <div class="relative grid place-items-center my-2">
-          <svg width="268" height="268" viewBox="0 0 268 268" class="-rotate-90">
-            <circle cx="134" cy="134" r="${R_L}" class="t-track" stroke-width="6" fill="none"/>
-            <circle cx="134" cy="134" r="${R_L}" class="t-prog t-prog-js" stroke-width="6" fill="none"
+          <svg width="256" height="256" viewBox="0 0 256 256" class="-rotate-90">
+            <circle cx="128" cy="128" r="${R_L}" class="t-track" stroke-width="7" fill="none"/>
+            <circle cx="128" cy="128" r="${R_L}" class="t-prog t-prog-js" stroke-width="7" fill="none"
               stroke-dasharray="${C_L}" stroke-linecap="round"/>
           </svg>
           <div class="absolute text-center">
-            <div class="t-state-js eyebrow mb-1"></div>
-            <div class="font-mono text-[64px] leading-none tracking-tight t-time-js">0:00</div>
+            <div class="t-state-js eyebrow mb-1">ОТДЫХ</div>
+            <div class="font-display text-[56px] font-bold leading-none tracking-tight t-time-js">0:00</div>
           </div>
         </div>
-        <div class="text-chrome-400 text-sm text-center min-h-[20px] t-next-js"></div>
-        <div class="flex gap-2 mt-5 w-full justify-center">${controls}</div>
+        <div class="text-zinc-400 text-sm text-center min-h-[20px] t-next-js"></div>
+        <div class="flex gap-2.5 mt-5 w-full justify-center">
+          <button class="t-pill-btn" data-tact="minus">\u221230 с</button>
+          <button class="t-pill-btn" data-tact="plus">+30 с</button>
+          <button class="t-pill-btn t-pill-stop" data-tact="stop">Стоп</button>
+        </div>
       </div>`;
   } else {
     el.innerHTML = `
-      <div class="t-pill glass-strong anim-rise" data-tact="expand">
-        <div class="relative w-12 h-12 shrink-0 grid place-items-center">
-          <svg width="48" height="48" viewBox="0 0 48 48" class="-rotate-90 absolute inset-0">
-            <circle cx="24" cy="24" r="${R_S}" class="t-track" stroke-width="3" fill="none"/>
-            <circle cx="24" cy="24" r="${R_S}" class="t-prog t-prog-js" stroke-width="3" fill="none"
-              stroke-dasharray="${C_S}" stroke-linecap="round"/>
-          </svg>
-          <span class="text-chrome-300">${icon('timer', 18)}</span>
+      <div class="t-pill anim-rise" data-tact="expand">
+        <div class="flex-1 min-w-0">
+          <div class="t-eyebrow t-label-js">ОТДЫХ</div>
+          <div class="t-digits t-time-js">0:00</div>
         </div>
-        <div class="flex-1 min-w-0 leading-tight">
-          <div class="eyebrow truncate t-label-js"></div>
-          <div class="font-mono text-[26px] leading-none mt-1 t-time-js">0:00</div>
-          <div class="text-[11px] text-chrome-500 truncate mt-1 t-next-js"></div>
+        <div class="flex items-center gap-2 shrink-0">
+          <button class="t-pill-btn" data-tact="plus">+30 с</button>
+          <button class="t-pill-btn t-pill-stop" data-tact="stop">Стоп</button>
         </div>
-        <div class="flex gap-1.5 shrink-0">${controls}</div>
+        <div class="t-bar-wrap"><div class="t-bar-fill t-bar-js"></div></div>
       </div>`;
   }
   paint();
@@ -226,16 +214,19 @@ function paint() {
   const rem = st.endAt - now;
   const timeEl = el.querySelector('.t-time-js');
   const prog = el.querySelector('.t-prog-js');
+  const bar = el.querySelector('.t-bar-js');
   const label = el.querySelector('.t-label-js');
   const next = el.querySelector('.t-next-js');
   const stateEl = el.querySelector('.t-state-js');
-  if (label) label.textContent = st.fired ? 'ОТДЫХ ОКОНЧЕН' : st.label;
+  if (label) label.textContent = st.fired ? 'ГОТОВО · К ШТАНГЕ' : 'ОТДЫХ';
   if (next) next.textContent = st.next || '';
-  if (stateEl) stateEl.textContent = st.fired ? 'К СНАРЯДУ' : 'ОТДЫХ';
+  if (stateEl) stateEl.textContent = st.fired ? 'К ПОДХОДУ' : 'ОТДЫХ';
   if (timeEl) timeEl.textContent = st.fired ? '+' + fmtDuration(now - st.endAt) : fmtDuration(rem + 999);
+  const frac = st.fired ? 1 : Math.max(0, Math.min(1, (st.total - rem) / st.total));
   if (prog) {
-    const C = expanded ? C_L : C_S;
-    const frac = st.fired ? 1 : Math.max(0, Math.min(1, 1 - rem / st.total));
-    prog.style.strokeDashoffset = String(C * (1 - frac));
+    prog.style.strokeDashoffset = String(C_L * (1 - frac));
+  }
+  if (bar) {
+    bar.style.width = `${Math.round((1 - frac) * 100)}%`;
   }
 }

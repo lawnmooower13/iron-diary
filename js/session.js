@@ -1,10 +1,12 @@
 /* ==========================================================================
    IRON DIARY · session.js
-   Session lifecycle (snapshot, effective set values, finish / reopen),
-   autoregulation application, statistics, PR and e1RM history.
+   Session lifecycle, effective set values, weekly autocalc, best sets,
+   achievements evaluation, nutrition streak, and PR statistics.
    ========================================================================== */
-import { buildDay, sessionKey, WEEKS, DAYS } from './program.js';
-import { roundTo, floorTo, autoregDelta, accProgression, e1rm } from './engine.js';
+import { buildDay, sessionKey, WEEKS, DAYS, MEALS, scaleMeal, ACHIEVEMENTS } from './program.js';
+import {
+  roundTo, floorTo, autoregDelta, accProgression, e1rm, SPEED, bodyPlan, dateKey, addDays,
+} from './engine.js';
 
 export const skey = (st, w, d) => sessionKey(st.cycle.n, w, d);
 export const getSession = (st, w, d) => st.log[skey(st, w, d)] || null;
@@ -29,7 +31,6 @@ export function setLog(sess, exId, i) {
   return sess.sets[exId][i];
 }
 
-/** Effective values of a set: logged override > derived back-off > readiness mod > plan. */
 export function effSet(sess, ex, i) {
   const plan = ex.sets[i];
   const log = sess?.sets?.[ex.id]?.[i] || {};
@@ -105,8 +106,8 @@ export function reopenSession(st, sess) {
 
 /* ------------------------------------------------------------ Stats */
 export function sessionStats(sess) {
-  let tonnage = 0, reps = 0, done = 0, total = 0;
-  if (!sess) return { tonnage, reps, done, total };
+  let tonnage = 0, reps = 0, done = 0, total = 0, speedSum = 0, speedN = 0;
+  if (!sess) return { tonnage, reps, done, total, avgSpeed: null };
   for (const ex of sess.plan) {
     ex.sets.forEach((_, i) => {
       const e = effSet(sess, ex, i);
@@ -114,40 +115,132 @@ export function sessionStats(sess) {
       total++;
       if (!e.done) return;
       done++;
+      if (e.speed && SPEED[e.speed]) { speedSum += SPEED[e.speed].score5; speedN++; }
       if (ex.unit === 'reps') {
         reps += e.r * (ex.perSide ? 2 : 1);
         if (e.w > 0 && !ex.bwPlus) tonnage += e.w * e.r * (ex.perSide ? 2 : 1);
       }
     });
   }
-  return { tonnage, reps, done, total };
+  return { tonnage, reps, done, total, avgSpeed: speedN ? speedSum / speedN : null };
 }
 
-export function planStats(plan) {
-  let sets = 0, tonnage = 0;
-  plan.forEach(ex => ex.sets.forEach(s => {
-    sets++;
-    if (ex.unit === 'reps' && s.w > 0 && !ex.bwPlus) tonnage += s.w * s.r * (ex.perSide ? 2 : 1);
-  }));
-  return { sets, tonnage };
+export function dayCounts(st, w, d) {
+  const sess = getSession(st, w, d);
+  if (sess) {
+    const x = sessionStats(sess);
+    return { done: x.done, total: x.total, frac: x.total ? x.done / x.total : 0 };
+  }
+  const plan = buildDay(w, d, st);
+  const total = plan.reduce((a, ex) => a + ex.sets.length, 0);
+  return { done: 0, total, frac: 0 };
+}
+
+export function weekTotals(st, w) {
+  let done = 0, total = 0, tonnage = 0, reps = 0, speedSum = 0, speedN = 0;
+  for (let d = 1; d <= 4; d++) {
+    const sess = getSession(st, w, d);
+    const c = dayCounts(st, w, d);
+    done += c.done;
+    total += c.total;
+    if (sess) {
+      const x = sessionStats(sess);
+      tonnage += x.tonnage;
+      reps += x.reps;
+      if (x.avgSpeed != null) { speedSum += x.avgSpeed; speedN++; }
+    }
+  }
+  const avgScore = speedN ? Math.round(speedSum / speedN) : null;
+  const feelMap = { 1: 'Еле', 2: 'Тяжко', 3: 'Норм', 4: 'Бодро', 5: 'Летит' };
+  return {
+    done, total, tonnage, reps,
+    avgScore,
+    feelLabel: avgScore ? feelMap[avgScore] : null,
+  };
 }
 
 export const allSessions = (st) =>
-  Object.values(st.log).filter(s => s.startedAt).sort((a, b) => a.startedAt - b.startedAt);
+  Object.values(st.log).filter(s => s.startedAt || Object.keys(s.sets || {}).length).sort((a, b) => (a.startedAt || a.createdAt) - (b.startedAt || b.createdAt));
 
 export const COMP = ['sq', 'bp', 'dl', 'ohp'];
-export const COMP_LABEL = { sq: 'Присед', bp: 'Жим лёжа', dl: 'Тяга', ohp: 'Армейский' };
+export const COMP_LABEL = { sq: 'Присед', bp: 'Жим лёжа', dl: 'Тяга классика', ohp: 'Жим стоя' };
 
 export function e1rmHistory(st, lift) {
   const pts = [];
   for (const s of allSessions(st)) {
-    const ex = s.plan.find(e => e.id === lift);
+    const ex = s.plan.find(e => e.id === lift || (lift === 'dl' && e.base === 'dl' && e.kind === 'main'));
     if (!ex) continue;
     let best = 0;
     effSets(s, ex).forEach(e => { if (e.done) best = Math.max(best, e1rm(e.w, e.r, e.rir ?? 0)); });
-    if (best) pts.push({ t: s.startedAt, v: Math.round(best * 10) / 10, cycle: s.cycle, week: s.week });
+    if (best) pts.push({ t: s.startedAt || s.createdAt, v: Math.round(best * 10) / 10, cycle: s.cycle, week: s.week });
   }
   return pts;
+}
+
+/** Best set per main lift in a given week (for "Лучшие подходы" and "Саморасчёт") */
+export function bestSetsOfWeek(st, w = st.ui.week) {
+  const out = {};
+  for (const lift of COMP) {
+    let best = null;
+    for (let d = 1; d <= 4; d++) {
+      const sess = getSession(st, w, d);
+      if (!sess) continue;
+      for (const ex of sess.plan) {
+        if (ex.base !== lift || (ex.kind !== 'main' && ex.id !== 'ohp')) continue;
+        effSets(sess, ex).forEach(s => {
+          if (!s.done) return;
+          const est = Math.round(e1rm(s.w, s.r, s.rir ?? 0));
+          if (!best || est > best.est) {
+            best = {
+              w: s.w,
+              r: s.r,
+              speed: s.speed,
+              speedLabel: s.speed && SPEED[s.speed] ? SPEED[s.speed].label : 'Норм',
+              rir: s.rir,
+              est,
+            };
+          }
+        });
+      }
+    }
+    out[lift] = best;
+  }
+  return out;
+}
+
+/** Weekly autocalculation proposal (capped at +5% per week, matching reference "Саморасчёт") */
+export function weekAutocalc(st, w = st.ui.week) {
+  const bests = bestSetsOfWeek(st, w);
+  const res = {};
+  let hasChange = false;
+  for (const lift of COMP) {
+    const cur = st.profile.maxes[lift];
+    const b = bests[lift];
+    if (!b) {
+      res[lift] = { cur, best: null, next: cur, diff: 0 };
+      continue;
+    }
+    const maxAllowed = roundTo(cur * 1.05, 2.5);
+    const minAllowed = roundTo(cur * 0.95, 2.5);
+    let proposed = roundTo(b.est, 2.5);
+    if (b.speed === 'struggle' || (b.rir === 0 && b.r < 2)) proposed = Math.min(proposed, cur);
+    const next = Math.max(minAllowed, Math.min(maxAllowed, proposed));
+    const diff = next - cur;
+    if (diff !== 0) hasChange = true;
+    res[lift] = { cur, best: b, next, diff };
+  }
+  return { lifts: res, hasChange };
+}
+
+export function applyWeekAutocalc(st, w = st.ui.week) {
+  const calc = weekAutocalc(st, w);
+  for (const lift of COMP) {
+    const item = calc.lifts[lift];
+    if (item && item.best) {
+      st.profile.maxes[lift] = item.next;
+    }
+  }
+  return calc;
 }
 
 export function personalRecords(st) {
@@ -160,9 +253,9 @@ export function personalRecords(st) {
       effSets(s, ex).forEach(e => {
         if (!e.done) return;
         const v = e1rm(e.w, e.r, e.rir ?? 0);
-        if (!rec.e1rm || v > rec.e1rm.v) rec.e1rm = { v, w: e.w, r: e.r, t: s.startedAt };
+        if (!rec.e1rm || v > rec.e1rm.v) rec.e1rm = { v, w: e.w, r: e.r, t: s.startedAt || s.createdAt };
         [1, 2, 3, 5].forEach(n => {
-          if (e.r >= n && (!rec.reps[n] || e.w > rec.reps[n].w)) rec.reps[n] = { w: e.w, t: s.startedAt };
+          if (e.r >= n && (!rec.reps[n] || e.w > rec.reps[n].w)) rec.reps[n] = { w: e.w, t: s.startedAt || s.createdAt };
         });
       });
     }
@@ -171,56 +264,111 @@ export function personalRecords(st) {
   return out;
 }
 
-/** PRs hit inside this session compared to all previous sessions. */
-export function sessionPRs(st, sess) {
-  const prev = { ...st, log: Object.fromEntries(Object.entries(st.log).filter(([k, s]) => k !== sess.key && s.startedAt && s.startedAt < (sess.startedAt || Date.now()))) };
-  const before = personalRecords(prev);
-  const list = [];
-  for (const lift of COMP) {
-    const ex = sess.plan.find(e => e.id === lift);
-    if (!ex) continue;
-    let best = 0, bestSet = null;
-    effSets(sess, ex).forEach(e => {
-      if (!e.done) return;
-      const v = e1rm(e.w, e.r, e.rir ?? 0);
-      if (v > best) { best = v; bestSet = e; }
-    });
-    const b = before[lift].e1rm?.v || 0;
-    if (best > b && b > 0) list.push({ lift, v: best, prev: b, set: bestSet });
-  }
-  return list;
-}
-
-export function weeklyVolume(st, cycleN = st.cycle.n) {
-  const weeks = WEEKS.map(w => ({ week: w.n, tonnage: 0, reps: 0, sets: 0 }));
-  Object.values(st.log).forEach(s => {
-    if (s.cycle !== cycleN) return;
-    const x = sessionStats(s);
-    const w = weeks[s.week - 1];
-    w.tonnage += x.tonnage; w.reps += x.reps; w.sets += x.done;
+/* ------------------------------------------- Nutrition totals & streak */
+export function dayNutritionStats(st, k = dateKey()) {
+  const P = st.profile;
+  const plan = bodyPlan(P.bw, P.targetBw);
+  const entry = st.nutrition[k] || { meals: {}, water: 0, supps: {} };
+  const scaledMeals = MEALS.map(m => scaleMeal(m, plan.scale));
+  let kcal = 0, prot = 0, doneCount = 0;
+  scaledMeals.forEach(m => {
+    if (entry.meals?.[m.id]) {
+      kcal += m.kcal;
+      prot += m.prot;
+      doneCount++;
+    }
   });
-  return weeks;
+  const pct = plan.kcal ? Math.round((kcal / plan.kcal) * 100) : 0;
+  const protPct = plan.protein ? Math.round((prot / plan.protein) * 100) : 0;
+  return {
+    kcal,
+    targetKcal: plan.kcal,
+    prot,
+    targetProt: plan.protein,
+    pct,
+    protPct,
+    scale: plan.scale,
+    doneCount,
+    totalMeals: scaledMeals.length,
+    scaledMeals,
+    hit90: pct >= 90,
+    hit100: pct >= 100,
+  };
 }
 
-export function cycleProposal(st) {
-  const res = {};
-  for (const lift of COMP) {
-    const pts = e1rmHistory(st, lift).filter(p => p.cycle === st.cycle.n);
-    const late = pts.filter(p => p.week >= 5);
-    const src = late.length ? late : pts;
-    const best = src.length ? Math.max(...src.map(p => p.v)) : 0;
-    const cur = st.profile.maxes[lift];
-    res[lift] = { cur, best, next: best ? floorTo(best) : cur };
+export function nutritionStreak(st) {
+  const today = dateKey();
+  let streak = 0;
+  const todayHit = dayNutritionStats(st, today).hit90;
+  if (todayHit) streak++;
+  for (let i = 1; i <= 60; i++) {
+    const k = addDays(today, -i);
+    if (dayNutritionStats(st, k).hit90) streak++;
+    else break;
   }
-  return res;
+  return streak;
+}
+
+/* ---------------------------------------------- Achievements Evaluator */
+export function evaluateAchievements(st) {
+  const P = st.profile;
+  const prs = personalRecords(st);
+  let anySet = false, anyFullDay = false, anyFullWeek = false, anyPr = false, gripDone = false;
+
+  for (const s of Object.values(st.log)) {
+    const x = sessionStats(s);
+    if (x.done > 0) anySet = true;
+    if (x.total > 0 && x.done >= x.total) anyFullDay = true;
+    for (const ex of s.plan || []) {
+      effSets(s, ex).forEach(set => {
+        if (!set.done) return;
+        if (ex.id === 'kroc' && set.r >= 20) gripDone = true;
+        if (COMP.includes(ex.id) && e1rm(set.w, set.r, set.rir ?? 0) > (P.maxes[ex.id] || 0)) {
+          anyPr = true;
+        }
+      });
+    }
+  }
+
+  for (let w = 1; w <= 8; w++) {
+    const wt = weekTotals(st, w);
+    if (wt.total > 0 && wt.done >= wt.total) anyFullWeek = true;
+    if (st.weekReviews?.[`c${st.cycle.n}-w${w}`]?.closed) anyFullWeek = true;
+  }
+
+  let anyFullFood = false;
+  for (const k of Object.keys(st.nutrition || {})) {
+    if (dayNutritionStats(st, k).hit100) { anyFullFood = true; break; }
+  }
+  const streak = nutritionStreak(st);
+  const maxBw = Math.max(P.bw, ...(st.bodyweight || []).map(b => b.kg));
+  const bestBp = Math.max(P.maxes.bp, prs.bp?.e1rm?.v || 0);
+  const bestDl = Math.max(P.maxes.dl, prs.dl?.e1rm?.v || 0);
+  const bestSq = Math.max(P.maxes.sq, prs.sq?.e1rm?.v || 0);
+  const totalEst = Math.round(bestSq + bestBp + bestDl);
+
+  const flags = {
+    first_set: anySet,
+    full_day: anyFullDay,
+    full_week: anyFullWeek,
+    new_pr: anyPr,
+    full_food: anyFullFood,
+    streak_7: streak >= 7,
+    bw_100: maxBw >= 100,
+    bench_140: bestBp >= 140,
+    total_600: totalEst >= 600,
+    dl_parity: bestDl >= 220,
+    iron_grip: gripDone,
+    bw_125: maxBw >= 125,
+  };
+
+  const list = ACHIEVEMENTS.map(a => ({ ...a, unlocked: !!flags[a.id] }));
+  const unlockedCount = list.filter(a => a.unlocked).length;
+  return { list, unlockedCount, totalCount: list.length };
 }
 
 export function dayCompletion(st, w, d) {
-  const s = getSession(st, w, d);
-  if (!s) return 0;
-  if (s.finishedAt) return 1;
-  const x = sessionStats(s);
-  return x.total ? x.done / x.total : 0;
+  return dayCounts(st, w, d).frac;
 }
 
 export const dayTitle = (w, d) => DAYS[d - 1].title(w);

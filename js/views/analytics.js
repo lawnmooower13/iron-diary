@@ -1,443 +1,206 @@
 /* ==========================================================================
-   IRON DIARY · views/analytics.js — Модуль 5: аналитика, рекорды, бэкап
+   IRON DIARY · views/analytics.js — Вкладка 4: «Сила»
+   "СУММА ТРОЕБОРЬЯ" hero card with milestone ring, "Как растёт сила" 2x2
+   e1RM cards + trend chart, "Саморасчёт, неделя N", "Максимумы" steppers,
+   and "Гриф 20 / 15" selector.
    ========================================================================== */
 import * as S from '../store.js';
 import {
-  fmt, fmtInt, fmtSigned, dots, shortDate, parseKey, slopePerWeek, roundTo, clamp,
+  fmt, fmtSigned, dots, roundTo, clamp,
 } from '../engine.js';
 import {
-  COMP, COMP_LABEL, e1rmHistory, personalRecords, weeklyVolume, cycleProposal, allSessions,
+  COMP, COMP_LABEL, e1rmHistory, personalRecords, weekAutocalc, applyWeekAutocalc,
 } from '../session.js';
 import {
-  icon, on, openSheet, closeSheet, confirmSheet, toast, lineChart, barChart,
+  on, toast, ring, lineChart,
 } from '../ui.js';
+import * as T from '../timer.js';
 
-let activeLift = 'dl';
-
-function currentE1rm(st, lift, prs) {
-  return prs[lift]?.e1rm?.v || st.profile.maxes[lift] || 0;
-}
+let selectedLift = null;
 
 export function render(st) {
   const P = st.profile;
   const prs = personalRecords(st);
-  const sqE = currentE1rm(st, 'sq', prs);
-  const bpE = currentE1rm(st, 'bp', prs);
-  const dlE = currentE1rm(st, 'dl', prs);
-  const totalBase = P.maxes.sq + P.maxes.bp + P.maxes.dl;
-  const totalHist = P.maxes.sq + P.maxes.bp + (P.maxes.dlSumo || P.maxes.dl);
-  const totalEst = Math.round((sqE + bpE + dlE) * 10) / 10;
-  const dotsEst = dots(totalEst, P.bw);
+  const curVal = (lift) => Math.round((prs[lift]?.e1rm?.v || P.maxes[lift] || 0) * 10) / 10;
 
-  const wVol = weeklyVolume(st);
-  const curWkVol = wVol[st.ui.week - 1] || { tonnage: 0, reps: 0, sets: 0 };
-  const cycleTonnage = wVol.reduce((a, w) => a + w.tonnage, 0);
-  const cycleReps = wVol.reduce((a, w) => a + w.reps, 0);
-  const cycleSets = wVol.reduce((a, w) => a + w.sets, 0);
+  const sq = curVal('sq');
+  const bp = curVal('bp');
+  const dl = curVal('dl');
+  const total = Math.round((sq + bp + dl) * 10) / 10;
+  const nextMilestone = total < 550 ? 550 : total < 575 ? 575 : total < 600 ? 600 : Math.ceil((total + 1) / 25) * 25;
+  const prevMilestone = nextMilestone - 75;
+  const toNext = Math.max(0, Math.round((nextMilestone - total) * 10) / 10);
+  const milestoneFrac = clamp((total - prevMilestone) / (nextMilestone - prevMilestone), 0.08, 1);
+  const dotsScore = dots(total, P.bw);
 
-  const liftPts = e1rmHistory(st, activeLift).map(p => ({
-    v: p.v,
-    label: `Н${p.week}`,
-  }));
-  const chartPts = liftPts.length
-    ? liftPts
-    : [{ v: P.maxes[activeLift], label: 'База' }];
-
-  const dlParity = clamp(dlE / (P.maxes.dlSumo || 230), 0, 1.15);
-  const target95 = Math.round((P.maxes.dlSumo || 230) * 0.95);
-
-  const bwPts = (st.bodyweight || []).slice(-14).map(b => ({
-    t: parseKey(b.date).getTime(),
-    v: b.kg,
-    label: shortDate(parseKey(b.date).getTime()),
-  }));
-  const bwSlope = slopePerWeek(bwPts);
-
-  const sessionsCount = allSessions(st).length;
+  const autocalc = weekAutocalc(st, st.ui.week);
 
   return `
-  <!-- Сумма троеборья и DOTS -->
-  <section class="glass card p-4">
-    <div class="flex items-start justify-between">
-      <div>
-        <div class="eyebrow">Соревновательное троеборье · @ ${fmt(P.bw, 1)} кг</div>
-        <div class="flex items-baseline gap-2.5 mt-1.5">
-          <span class="font-mono text-[40px] leading-none tracking-tight">${fmt(totalEst, 1)}</span>
-          <span class="text-[12px] text-chrome-400">кг расчётная сумма (e1RM)</span>
+  <!-- Card 1: СУММА ТРОЕБОРЬЯ -->
+  <section class="ref-card ref-hero hero-strength">
+    <div class="flex items-start justify-between gap-3">
+      <div class="min-w-0">
+        <div class="ref-eyebrow text-accent">СУММА ТРОЕБОРЬЯ &middot; DOTS ${fmt(dotsScore, 0)}</div>
+        <div class="flex items-baseline gap-2 mt-1">
+          <span class="ref-giant-num">${fmt(total)}</span>
+          <span class="text-[22px] font-bold text-zinc-400">кг</span>
+        </div>
+        <div class="text-[15px] text-zinc-400 mt-1">
+          Присед ${fmt(sq)} &middot; жим ${fmt(bp)} &middot; тяга ${fmt(dl)}
         </div>
       </div>
-      <div class="text-right">
-        <span class="tag tag-ice">DOTS ${fmt(dotsEst, 1)}</span>
-        <div class="text-[11px] text-chrome-500 font-mono mt-1.5">PR сумо: ${totalHist} кг</div>
+
+      <div class="relative shrink-0 grid place-items-center">
+        ${ring(milestoneFrac, { size: 96, stroke: 7.5, color: '#F97316' })}
+        <div class="absolute text-center">
+          <div class="font-mono text-[10px] text-zinc-400 uppercase">ДО ${nextMilestone}</div>
+          <div class="font-display text-[22px] font-extrabold text-white leading-tight">${fmt(toNext)}</div>
+        </div>
       </div>
     </div>
 
-    <div class="grid grid-cols-3 gap-2 mt-4">
-      <div class="tile"><span class="eyebrow">База цикла</span><span class="font-mono text-[17px]">${totalBase} кг</span></div>
-      <div class="tile"><span class="eyebrow">Тоннаж цикла</span><span class="font-mono text-[17px]">${fmtInt(cycleTonnage)}</span></div>
-      <div class="tile"><span class="eyebrow">Повторы</span><span class="font-mono text-[17px]">${fmtInt(cycleReps)}</span></div>
-    </div>
+    <p class="text-[14.5px] text-zinc-400 mt-4 leading-relaxed">
+      Лучшая сумма с сумо &mdash; ${P.maxes.sq + P.maxes.bp + P.maxes.dlSumo} кг (${P.maxes.sq} + ${P.maxes.bp} + ${P.maxes.dlSumo}). Следующая отметка &mdash; ${nextMilestone} кг.
+    </p>
+  </section>
 
-    <!-- Прогресс перехода Сумо -> Классика -->
-    <div class="mt-4 pt-3 border-t border-white/[0.06]">
-      <div class="flex items-center justify-between text-[12px]">
-        <span class="eyebrow text-chrome-200">Переход в классику · цель ≥ ${target95} кг (95% сумо)</span>
-        <span class="font-mono text-chrome-200">${fmt(dlE, 1)} / ${P.maxes.dlSumo} кг (${Math.round(dlParity * 100)}%)</span>
-      </div>
-      <div class="w-full h-2 rounded-full bg-white/[0.06] overflow-hidden mt-2 relative">
-        <div class="h-full ${dlE >= target95 ? 'bg-ok' : 'bg-ice'} rounded-full transition-all" style="width:${Math.min(100, Math.round(dlParity * 100))}%"></div>
-      </div>
+  <!-- Card 2: Как растёт сила -->
+  <section class="ref-card p-4">
+    <div class="flex items-center justify-between gap-2 flex-wrap">
+      <h2 class="text-[23px] font-extrabold text-white">Как растёт сила</h2>
+      <span class="ref-eyebrow text-accent">РАСЧЁТНЫЙ МАКСИМУМ</span>
+    </div>
+    <p class="text-[14px] text-zinc-400 mt-2 leading-relaxed">
+      Каждая точка &mdash; лучший подход тренировки, пересчитанный в разовый максимум. Тесты не нужны: рост видно по обычной работе.
+    </p>
+
+    <div class="grid grid-cols-2 gap-2.5 mt-4">
+      ${COMP.map(lift => {
+        const pts = e1rmHistory(st, lift);
+        const val = curVal(lift);
+        const base = P.maxes[lift];
+        const diff = Math.round((val - base) * 10) / 10;
+        const active = selectedLift === lift;
+        return `
+        <button class="ref-tile text-left ${active ? 'border-orange-500/50' : ''}" data-act="st:selectLift" data-lift="${lift}">
+          <div class="text-[16px] font-extrabold text-white">${COMP_LABEL[lift]}</div>
+          <div class="font-display text-[34px] font-extrabold text-white leading-none mt-1.5">${fmt(val)}</div>
+          ${pts.length ? `
+            <div class="mt-2 font-mono text-[12px] ${diff >= 0 ? 'text-emerald-400' : 'text-amber-400'}">
+              ${diff ? `${fmtSigned(diff)} кг к базе` : `Лучший подход: ${fmt(pts[pts.length - 1].v)} кг`}
+            </div>
+            ${pts.length >= 2 ? lineChart(pts.map(p => ({ v: p.v, label: 'Н' + p.week })), { h: 76, color: '#F97316' }) : ''}
+          ` : `
+            <p class="text-[13px] text-zinc-400 mt-3 leading-snug">
+              Отметь «Как пошёл» на подходах &mdash; тут появится рост
+            </p>
+          `}
+        </button>`;
+      }).join('')}
     </div>
   </section>
 
-  <!-- Карточки e1RM по базовым движениям -->
-  <section class="grid grid-cols-2 gap-2.5">
-    ${COMP.map(lift => {
-      const base = P.maxes[lift];
-      const best = prs[lift]?.e1rm;
-      const val = best ? best.v : base;
-      const diff = val - base;
-      const adj = st.adj[lift] || 0;
-      return `
-      <button class="glass card p-3.5 text-left ${activeLift === lift ? 'border-white/25' : ''}" data-act="an:lift" data-lift="${lift}">
-        <div class="flex items-center justify-between">
-          <span class="eyebrow">${COMP_LABEL[lift]}</span>
-          <span class="font-mono text-[11px] ${diff > 0 ? 'text-ok' : 'text-chrome-500'}">${diff ? fmtSigned(roundTo(diff, 0.5)) : 'база'}</span>
-        </div>
-        <div class="flex items-baseline gap-1.5 mt-2">
-          <span class="font-mono text-[26px] leading-none">${fmt(val, 1)}</span>
-          <span class="text-[11px] text-chrome-500">кг e1RM</span>
-        </div>
-        <div class="flex items-center justify-between mt-2.5 pt-2 border-t border-white/[0.05] text-[11px] font-mono text-chrome-500">
-          <span>1ПМ: ${base}</span>
-          <span class="${adj > 0 ? 'text-ok' : adj < 0 ? 'text-warn' : ''}">АВТ: ${adj ? fmtSigned(adj) : '0'}</span>
-        </div>
-      </button>`;
-    }).join('')}
-  </section>
-
-  <!-- График e1RM выбранного движения -->
-  <section class="glass card p-4">
-    <div class="flex items-center justify-between mb-2">
-      <div>
-        <div class="eyebrow">Динамика расчётного 1ПМ (e1RM)</div>
-        <h3 class="font-display text-[15px] mt-0.5">${COMP_LABEL[activeLift]}</h3>
-      </div>
-      <div class="seg seg-4 w-[190px]">
-        ${COMP.map(l => `<button class="seg-btn text-[10px] ${activeLift === l ? 'is-on' : ''}" data-act="an:lift" data-lift="${l}">${COMP_LABEL[l].slice(0, 4)}</button>`).join('')}
-      </div>
-    </div>
-    ${lineChart(chartPts, { target: activeLift === 'dl' ? P.maxes.dlSumo : P.maxes[activeLift] })}
-  </section>
-
-  <!-- Недельный тоннаж и объём -->
-  <section class="glass card p-4">
+  <!-- Card 3: Саморасчёт, неделя N -->
+  <section class="ref-card p-4">
     <div class="flex items-center justify-between">
-      <div>
-        <div class="eyebrow">Недельный тоннаж · цикл ${st.cycle.n}</div>
-        <div class="text-[12px] text-chrome-400 mt-0.5">Неделя ${st.ui.week}: <span class="font-mono text-chrome-100">${fmtInt(curWkVol.tonnage)} кг</span> · ${curWkVol.reps} повт. · ${curWkVol.sets} подх.</div>
-      </div>
-      <span class="tag tag-steel">${cycleSets} подх.</span>
+      <h2 class="text-[22px] font-extrabold text-white">Саморасчёт, неделя ${st.ui.week}</h2>
+      <span class="ref-eyebrow text-accent">АВТОРЕГУЛЯЦИЯ</span>
     </div>
-    <div class="mt-3">
-      ${barChart(wVol.map(w => ({ label: 'Н' + w.week, v: Math.round(w.tonnage / 100) / 10 })), {
-        active: st.ui.week - 1,
-        fmtV: (v) => fmt(v, 1) + 'т',
-      })}
+    <p class="text-[14px] text-zinc-400 mt-2 leading-relaxed">
+      Беру лучший отмеченный подход за неделю. Поднимаю максимум не больше чем на 5% за раз.
+    </p>
+
+    <div class="mt-4 space-y-2.5">
+      ${COMP.map(lift => {
+        const item = autocalc.lifts[lift];
+        const b = item.best;
+        return `
+        <div class="flex items-center justify-between text-[16px] py-1">
+          <span class="text-zinc-200 font-semibold">${COMP_LABEL[lift]}</span>
+          ${b
+            ? `<span class="font-mono text-zinc-300">${fmt(b.w)}&times;${b.r} &rarr; <b class="text-white font-extrabold">${fmt(item.next)}</b></span>`
+            : `<span class="font-mono text-zinc-400">нет данных &rarr; <b class="text-white font-extrabold">${fmt(item.cur)}</b></span>`
+          }
+        </div>`;
+      }).join('')}
     </div>
+
+    ${autocalc.hasChange ? `
+      <button class="btn btn-accent w-full mt-4" data-act="st:applyAutocalc">Применить новые максимумы</button>
+    ` : `
+      <p class="text-[14px] text-zinc-400 mt-4 leading-relaxed">
+        Пока менять нечего. Отмечай «Как пошёл» на подходах &mdash; предложение появится здесь.
+      </p>
+    `}
   </section>
 
-  <!-- Матрица личных рекордов -->
-  <section class="glass card p-4">
-    <div class="flex items-center justify-between mb-3">
-      <div>
-        <div class="eyebrow">Матрица личных рекордов</div>
-        <p class="text-[11.5px] text-chrome-500 mt-0.5">Лучшие рабочие веса по диапазонам повторений</p>
-      </div>
-      <span class="text-ice">${icon('trophy', 18)}</span>
-    </div>
-    <div class="overflow-x-auto">
-      <table class="pr-table">
-        <thead>
-          <tr>
-            <th>Движение</th>
-            <th>e1RM</th>
-            <th>×1</th>
-            <th>×2</th>
-            <th>×3</th>
-            <th>×5</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${COMP.map(lift => {
-            const r = prs[lift];
-            return `
-            <tr>
-              <td class="font-medium text-chrome-200">${COMP_LABEL[lift]}</td>
-              <td class="font-mono text-ice">${r.e1rm ? fmt(r.e1rm.v, 1) : fmt(P.maxes[lift])}</td>
-              ${[1, 2, 3, 5].map(n => `<td class="font-mono ${r.reps[n] ? 'text-chrome-100' : 'text-chrome-600'}">${r.reps[n] ? fmt(r.reps[n].w) : '—'}</td>`).join('')}
-            </tr>`;
-          }).join('')}
-        </tbody>
-      </table>
-    </div>
-  </section>
+  <!-- Card 4: Максимумы -->
+  <section class="ref-card p-4">
+    <h2 class="text-[23px] font-extrabold text-white">Максимумы</h2>
 
-  <!-- Динамика массы тела -->
-  <section class="glass card p-4">
-    <div class="flex items-center justify-between mb-2">
-      <div>
-        <div class="eyebrow">Масса тела · 95 → ${P.targetBw}+ кг</div>
-        <div class="text-[12px] text-chrome-400 mt-0.5">
-          Текущий: <span class="font-mono text-chrome-100">${fmt(P.bw, 1)} кг</span>
-          ${bwSlope != null ? ` · темп <span class="font-mono text-ice">${fmtSigned(Math.round(bwSlope * 100) / 100)} кг/нед</span>` : ''}
-        </div>
-      </div>
-      <span class="font-mono text-[12px] text-chrome-400">${P.height} см · размах ${P.wingspan}</span>
+    <div class="mt-3 p-3.5 rounded-2xl bg-orange-950/35 border border-orange-500/25 text-[14.5px] text-zinc-200 leading-relaxed">
+      Сейчас стоят твои рабочие цифры по анкете. Поставь реальные цифры или оставь &mdash; программа подстроится за 1–2 недели.
     </div>
-    ${lineChart(bwPts, { color: 'var(--ok)' })}
-  </section>
 
-  <!-- Управление максимумами и циклом -->
-  <section class="glass card p-4">
-    <div class="flex items-center justify-between">
-      <div>
-        <div class="eyebrow">Параметры атлета и цикл</div>
-        <h3 class="font-display text-[15px] mt-0.5">Рабочие максимумы (1ПМ)</h3>
-      </div>
-      <button class="btn btn-ghost btn-sm" data-act="an:editMaxes">${icon('pencil', 15)}<span>Изменить</span></button>
-    </div>
-    <div class="grid grid-cols-5 gap-1.5 mt-3 text-center">
+    <div class="mt-4 space-y-4">
       ${[
-        ['ПРИСЕД', P.maxes.sq],
-        ['ЖИМ', P.maxes.bp],
-        ['ТЯГА КЛ.', P.maxes.dl],
-        ['СУМО PR', P.maxes.dlSumo],
-        ['АРМЕЙСК.', P.maxes.ohp],
-      ].map(([lbl, v]) => `
-        <div class="tile"><span class="text-[9.5px] font-mono text-chrome-500">${lbl}</span><span class="font-mono text-[15px] mt-1">${fmt(v)}</span></div>`).join('')}
+        ['sq', 'Присед', 'от этого считаются веса'],
+        ['bp', 'Жим лёжа', 'от этого считаются веса'],
+        ['dl', 'Тяга классикой', 'основная тяга цикла и вариаций'],
+        ['dlSumo', 'Тяга сумо', 'лучший соревновательный ориентир'],
+        ['ohp', 'Жим стоя', 'от этого считаются веса'],
+      ].map(([k, title, sub]) => `
+        <div class="flex items-center justify-between gap-2">
+          <div class="min-w-0">
+            <div class="text-[18px] font-extrabold text-white leading-tight">${title}</div>
+            <div class="text-[13px] text-zinc-400 mt-0.5">${sub}</div>
+          </div>
+          <div class="flex items-center gap-2 shrink-0">
+            <button class="ref-step-btn" data-act="st:max" data-k="${k}" data-d="-2.5">&minus;</button>
+            <div class="ref-max-box">${fmt(P.maxes[k])}</div>
+            <button class="ref-step-btn" data-act="st:max" data-k="${k}" data-d="2.5">+</button>
+          </div>
+        </div>`).join('')}
     </div>
-    <button class="btn btn-ghost w-full mt-3" data-act="an:newCycleSheet">
-      ${icon('layers', 17)}
-      <span>Завершить цикл ${st.cycle.n} и пересчитать 1ПМ</span>
-    </button>
   </section>
 
-  <!-- Резервное копирование JSON -->
-  <section class="glass card p-4">
-    <div class="flex items-center justify-between">
-      <div>
-        <div class="eyebrow">Локальное хранилище · 100% офлайн</div>
-        <h3 class="font-display text-[15px] mt-0.5">Резервное копирование базы</h3>
-      </div>
-      <span class="font-mono text-[11px] text-chrome-500">${sessionsCount} сессий</span>
+  <!-- Card 5: Гриф -->
+  <section class="ref-card p-4 flex items-center justify-between gap-3">
+    <div>
+      <div class="text-[18px] font-extrabold text-white">Гриф</div>
+      <div class="text-[13px] text-zinc-400">под него считаются блины</div>
     </div>
-    <p class="text-[12px] text-chrome-400 mt-1.5 leading-relaxed">Экспорт всей истории тренировок, авторегуляции, замеров ЦНС, питания и настроек в один файл JSON или восстановление из копии.</p>
-    <div class="grid grid-cols-2 gap-2 mt-3">
-      <button class="btn btn-primary" data-act="an:export">${icon('download', 17)}<span>Скачать JSON</span></button>
-      <button class="btn btn-ghost" data-act="an:importTrigger">${icon('upload', 17)}<span>Импорт JSON</span></button>
-    </div>
-    <input id="backupFileInput" type="file" accept="application/json,.json" class="hidden" data-change="an:importFile"/>
-    <div class="mt-3 pt-3 border-t border-white/[0.05] flex items-center justify-between">
-      <span class="text-[11.5px] text-chrome-500">Полный сброс приложения</span>
-      <button class="text-[11.5px] font-mono text-crit hover:underline py-2 px-2" data-act="an:resetAll">Сбросить данные</button>
+    <div class="flex items-center gap-2">
+      <button class="ref-bar-pill ${P.bar === 20 ? 'is-on' : ''}" data-act="st:bar" data-v="20">20</button>
+      <button class="ref-bar-pill ${P.bar === 15 ? 'is-on' : ''}" data-act="st:bar" data-v="15">15</button>
     </div>
   </section>`;
 }
 
-on('an:lift', (el) => { activeLift = el.dataset.lift; S.update(() => {}); });
-
-on('an:export', () => {
-  const fn = S.exportJSON();
-  toast(`Копия сохранена: ${fn}`, 'ok');
-});
-
-on('an:importTrigger', () => {
-  const inp = document.getElementById('backupFileInput');
-  if (inp) { inp.value = ''; inp.click(); }
-});
-
-on('an:importFile', async (el) => {
-  const file = el.files?.[0];
-  if (!file) return;
-  try {
-    const text = await file.text();
-    const parsed = S.parseBackup(text);
-    const ok = await confirmSheet({
-      title: 'Восстановить из копии?',
-      text: `Файл содержит ${parsed.sessions} записанных тренировок. Текущие данные в браузере будут заменены.`,
-      ok: 'Восстановить',
-    });
-    if (!ok) return;
-    S.importData(parsed.data);
-    toast('База данных восстановлена', 'ok');
-  } catch (e) {
-    toast(e.message || 'Ошибка чтения JSON', 'crit');
-  }
-});
-
-on('an:resetAll', async () => {
-  const ok = await confirmSheet({
-    title: 'Сбросить все данные?',
-    text: 'Вся история тренировок, замеры ЦНС и индивидуальные веса будут удалены. Рекомендуется сначала скачать JSON-копию.',
-    ok: 'Сбросить',
-    danger: true,
-  });
-  if (!ok) return;
-  S.resetAll();
-  toast('Данные сброшены к исходному профилю', 'warn');
-});
-
-/* ------------------------------------------------ Edit maxes sheet */
-let draftProfile = null;
-
-function renderMaxesSheet() {
-  const d = draftProfile;
-  const rows = [
-    ['sq', 'Присед со штангой, кг', 2.5],
-    ['bp', 'Жим лёжа с паузой, кг', 2.5],
-    ['dl', 'Становая тяга классика (база), кг', 2.5],
-    ['dlSumo', 'Становая сумо (ориентир PR), кг', 2.5],
-    ['ohp', 'Армейский жим стоя, кг', 2.5],
-  ];
-  return `
-  <div class="pt-1">
-    <div class="flex items-start justify-between">
-      <div>
-        <div class="eyebrow">Профиль атлета</div>
-        <h3 class="font-display text-[18px] tracking-tight mt-1">Максимумы и таймер</h3>
-      </div>
-      <button class="icon-btn" data-act="sheet:close" aria-label="Закрыть">${icon('x', 20)}</button>
-    </div>
-    <div class="mt-3 divide-y divide-white/[0.05]">
-      ${rows.map(([k, lbl, step]) => `
-        <div class="metric-row">
-          <span class="text-[13px] text-chrome-200">${lbl}</span>
-          <div class="flex items-center gap-1.5">
-            <button class="step-btn" data-act="mx:step" data-k="${k}" data-d="${-step}">${icon('minus', 16)}</button>
-            <span class="font-mono text-[20px] w-[66px] text-center">${fmt(d.maxes[k])}</span>
-            <button class="step-btn" data-act="mx:step" data-k="${k}" data-d="${step}">${icon('plus', 16)}</button>
-          </div>
-        </div>`).join('')}
-      <div class="metric-row">
-        <span class="text-[13px] text-chrome-200">Отдых после топ-сета, мин</span>
-        <div class="flex items-center gap-1.5">
-          <button class="step-btn" data-act="mx:rest" data-k="restTop" data-d="-30">${icon('minus', 16)}</button>
-          <span class="font-mono text-[18px] w-[66px] text-center">${fmt(d.restTop / 60, 1)}</span>
-          <button class="step-btn" data-act="mx:rest" data-k="restTop" data-d="30">${icon('plus', 16)}</button>
-        </div>
-      </div>
-      <div class="metric-row">
-        <span class="text-[13px] text-chrome-200">Отдых в базовых подходах, мин</span>
-        <div class="flex items-center gap-1.5">
-          <button class="step-btn" data-act="mx:rest" data-k="restMain" data-d="-30">${icon('minus', 16)}</button>
-          <span class="font-mono text-[18px] w-[66px] text-center">${fmt(d.restMain / 60, 1)}</span>
-          <button class="step-btn" data-act="mx:rest" data-k="restMain" data-d="30">${icon('plus', 16)}</button>
-        </div>
-      </div>
-    </div>
-    <div class="grid grid-cols-3 gap-2 mt-3">
-      <button class="opt-btn ${d.sound ? 'is-on' : ''}" data-act="mx:toggle" data-k="sound"><span class="eyebrow">Звук</span><span class="font-mono text-[12px]">${d.sound ? 'ВКЛ' : 'ВЫКЛ'}</span></button>
-      <button class="opt-btn ${d.vibro ? 'is-on' : ''}" data-act="mx:toggle" data-k="vibro"><span class="eyebrow">Вибро</span><span class="font-mono text-[12px]">${d.vibro ? 'ВКЛ' : 'ВЫКЛ'}</span></button>
-      <button class="opt-btn ${d.autoTimer ? 'is-on' : ''}" data-act="mx:toggle" data-k="autoTimer"><span class="eyebrow">Авто-таймер</span><span class="font-mono text-[12px]">${d.autoTimer ? 'ВКЛ' : 'ВЫКЛ'}</span></button>
-    </div>
-    <div class="grid grid-cols-2 gap-2 mt-5">
-      <button class="btn btn-ghost" data-act="sheet:close">Отмена</button>
-      <button class="btn btn-primary" data-act="mx:save">${icon('check', 16)}<span>Сохранить</span></button>
-    </div>
-  </div>`;
-}
-
-on('an:editMaxes', () => {
-  const P = S.get().profile;
-  draftProfile = {
-    maxes: { ...P.maxes },
-    restTop: P.restTop,
-    restMain: P.restMain,
-    sound: P.sound,
-    vibro: P.vibro,
-    autoTimer: P.autoTimer,
-  };
-  openSheet(renderMaxesSheet);
-});
-
-on('mx:step', (el) => {
-  const k = el.dataset.k;
-  draftProfile.maxes[k] = Math.max(20, roundTo(draftProfile.maxes[k] + +el.dataset.d, 2.5));
+/* ---------------------------------------------------------- Actions */
+on('st:selectLift', (el) => {
+  selectedLift = selectedLift === el.dataset.lift ? null : el.dataset.lift;
   S.update(() => {});
 });
-on('mx:rest', (el) => {
+
+on('st:max', (el) => {
   const k = el.dataset.k;
-  draftProfile[k] = clamp(draftProfile[k] + +el.dataset.d, 60, 600);
-  S.update(() => {});
-});
-on('mx:toggle', (el) => {
-  const k = el.dataset.k;
-  draftProfile[k] = !draftProfile[k];
-  S.update(() => {});
-});
-on('mx:save', () => {
+  const d = +el.dataset.d;
   S.update(st => {
-    st.profile.maxes = { ...draftProfile.maxes };
-    st.profile.restTop = draftProfile.restTop;
-    st.profile.restMain = draftProfile.restMain;
-    st.profile.sound = draftProfile.sound;
-    st.profile.vibro = draftProfile.vibro;
-    st.profile.autoTimer = draftProfile.autoTimer;
+    st.profile.maxes[k] = Math.max(20, roundTo((st.profile.maxes[k] || 100) + d, 2.5));
   });
-  closeSheet();
-  toast('Параметры обновлены', 'ok');
+  if (S.get().profile.vibro) T.haptic(8);
 });
 
-/* ------------------------------------------------ New Cycle Sheet */
-on('an:newCycleSheet', () => {
-  openSheet(() => {
-    const st = S.get();
-    const prop = cycleProposal(st);
-    return `
-    <div class="pt-1">
-      <div class="flex items-start justify-between">
-        <div>
-          <div class="eyebrow">Переход к циклу ${st.cycle.n + 1}</div>
-          <h3 class="font-display text-[18px] tracking-tight mt-1">Пересчёт максимумов</h3>
-        </div>
-        <button class="icon-btn" data-act="sheet:close">${icon('x', 20)}</button>
-      </div>
-      <p class="text-[12.5px] text-chrome-400 mt-2 leading-relaxed">Новые рабочие максимумы рассчитаны по лучшим e1RM текущего цикла (округление вниз до 2,5 кг). Накопленные дельты авторегуляции обнуляются.</p>
-      <div class="mt-4 divide-y divide-white/[0.05]">
-        ${COMP.map(l => {
-          const p = prop[l];
-          const d = p.next - p.cur;
-          return `
-          <div class="py-2.5 flex items-center justify-between">
-            <span class="text-[13px] text-chrome-200">${COMP_LABEL[l]}</span>
-            <span class="font-mono text-[14px]">${fmt(p.cur)} → <b class="text-chrome-100">${fmt(p.next)} кг</b> <span class="text-[11px] ${d > 0 ? 'text-ok' : 'text-chrome-500'}">(${d ? fmtSigned(d) : '0'})</span></span>
-          </div>`;
-        }).join('')}
-      </div>
-      <div class="grid grid-cols-2 gap-2 mt-5">
-        <button class="btn btn-ghost" data-act="sheet:close">Отмена</button>
-        <button class="btn btn-primary" data-act="an:startNextCycle">${icon('check', 16)}<span>Начать цикл ${st.cycle.n + 1}</span></button>
-      </div>
-    </div>`;
-  });
+on('st:bar', (el) => {
+  const v = +el.dataset.v;
+  S.update(st => { st.profile.bar = v; });
+  if (S.get().profile.vibro) T.haptic(8);
 });
 
-on('an:startNextCycle', () => {
+on('st:applyAutocalc', () => {
   S.update(st => {
-    const prop = cycleProposal(st);
-    st.cycle.history.push({ n: st.cycle.n, endedAt: Date.now(), maxes: { ...st.profile.maxes } });
-    COMP.forEach(l => { st.profile.maxes[l] = prop[l].next; });
-    st.adj = {};
-    st.cycle.n += 1;
-    st.cycle.week = 1;
-    st.cycle.day = 1;
-    st.cycle.complete = false;
-    st.cycle.startedAt = Date.now();
-    st.ui.week = 1;
-    st.ui.day = 1;
-    st.ui.tab = 'train';
+    applyWeekAutocalc(st, st.ui.week);
   });
-  closeSheet();
-  toast(`Запущен цикл ${S.get().cycle.n}`, 'ok');
+  toast('Максимумы обновлены по лучшим подходам недели', 'ok');
 });

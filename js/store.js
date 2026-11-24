@@ -7,7 +7,7 @@ import { DEFAULT_SUPPS } from './program.js';
 import { dateKey } from './engine.js';
 
 const KEY = 'ironDiary.v3';
-export const SCHEMA = 3;
+export const SCHEMA = 4;
 
 export function defaults() {
   return {
@@ -15,21 +15,29 @@ export function defaults() {
     createdAt: Date.now(),
     profile: {
       name: 'Атлет',
-      height: 190, wingspan: 203, bw: 95, targetBw: 125,
+      height: 190,
+      wingspan: 203,
+      bw: 95,
+      targetBw: 125,
       maxes: { sq: 190, bp: 140, dl: 200, dlSumo: 230, ohp: 85 },
       baselineHr: 58,
-      bar: 20, collar: 0,
-      restTop: 300, restMain: 180,
-      sound: true, vibro: true, autoTimer: true,
+      bar: 20,
+      collar: 0,
+      restTop: 240,
+      restMain: 180,
+      sound: true,
+      vibro: true,
+      autoTimer: true,
     },
     cycle: { n: 1, week: 1, day: 1, startedAt: Date.now(), history: [] },
-    ui: { tab: 'train', week: 1, day: 1, proto: 'pre' },
+    ui: { tab: 'gym', week: 1, day: 1, proto: 'pre' },
     adj: {},
     accW: {},
     log: {},
     protocols: {},
     readiness: {},
     nutrition: {},
+    weekReviews: {},
     supps: DEFAULT_SUPPS.map(s => ({ ...s })),
     bodyweight: [{ date: dateKey(), kg: 95 }],
   };
@@ -45,9 +53,10 @@ function merge(base, incoming) {
   return out;
 }
 
+const TAB_MAP = { train: 'gym', food: 'food', cns: 'body', stats: 'strength', proto: 'week' };
+
 let state = null;
 const listeners = new Set();
-let saveError = null;
 
 export function load() {
   try {
@@ -56,6 +65,10 @@ export function load() {
   } catch (e) {
     console.error('[store] load failed', e);
     state = defaults();
+  }
+  if (TAB_MAP[state.ui?.tab]) state.ui.tab = TAB_MAP[state.ui.tab];
+  if (!['gym', 'food', 'body', 'strength', 'week'].includes(state.ui?.tab)) {
+    state.ui.tab = 'gym';
   }
   state.schema = SCHEMA;
   return state;
@@ -66,18 +79,14 @@ export const get = () => state;
 export function save() {
   try {
     localStorage.setItem(KEY, JSON.stringify(state));
-    saveError = null;
   } catch (e) {
-    saveError = e;
     console.error('[store] save failed', e);
   }
 }
-export const lastSaveError = () => saveError;
 
 export function subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 function emit() { listeners.forEach(fn => { try { fn(state); } catch (e) { console.error(e); } }); }
 
-/** Mutate state, persist, re-render. */
 export function update(mutator, { silent = false } = {}) {
   mutator(state);
   save();
@@ -108,13 +117,14 @@ export function parseBackup(text) {
   const obj = JSON.parse(text);
   const data = obj && obj.app === 'iron-diary' ? obj.data : obj;
   if (!isObj(data) || !isObj(data.profile) || !isObj(data.log)) {
-    throw new Error('Файл не похож на резервную копию Iron Diary');
+    throw new Error('Файл не является резервной копией Железного дневника');
   }
   return { data, exportedAt: obj.exportedAt || null, sessions: Object.keys(data.log).length };
 }
 
 export function importData(data) {
   state = merge(defaults(), data);
+  if (TAB_MAP[state.ui?.tab]) state.ui.tab = TAB_MAP[state.ui.tab];
   state.schema = SCHEMA;
   save();
   emit();

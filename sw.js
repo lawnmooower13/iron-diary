@@ -2,7 +2,7 @@
    IRON DIARY · sw.js
    Offline-first Service Worker for GitHub Pages and local PWA execution.
    ========================================================================== */
-const CACHE = 'iron-diary-v3';
+const CACHE = 'iron-diary-v4';
 const CORE = [
   './',
   './index.html',
